@@ -67,7 +67,8 @@ The script models a scenario in which a project has an uncertain completion time
   - \(t\) is the current time step in the project (from 0 to the true end time).
   - \(Ta\) is the currently *announced* time for completion.
   - \(Ts\) is the *true* end time (unknown to the decision-maker, but modeled in the simulation).
-
+  - The parameters `max_end_time`, `min_end_time`, `max_estimated_time`, and `min_estimated_time` define the range of possible true end times (`Ts`), current announced times (`Ta`), and the ongoing time steps (`t`). By modifying these global variables, you can easily shrink or expand the state space to reflect different project durations or estimate ranges for completion times.
+    
 - **Actions**:
   1. `:dont_announce`: Do not revise the announced time.
   2. `AnnounceAction(announced_time)`: Revise the announced time to `announced_time`.
