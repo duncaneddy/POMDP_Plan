@@ -226,8 +226,12 @@ function simulate_many(pomdp, solver_type, num_simulations)
     numeric_times = [time.value for time in iteration_times]
     average_time = mean(numeric_times)
     println("Average iteration time in simulation: ", average_time / 1000, " seconds")
-
-    return rewards
+    
+    results = Dict(
+        "rewards" => rewards, 
+        "numeric_times" => numeric_times
+    )
+    return results
 end
 
 function simulate(pomdp, solver_type)
@@ -253,8 +257,9 @@ function main()
     solver_type = ARGS[1]
     pomdp = define_pomdp()
     simulate(pomdp, solver_type)
-    rewards = simulate_many(pomdp, solver_type, 100)
-    plot_rewards(rewards, solver_type)
+    # results is a dictionary with keys rewards, numeric_times
+    results = simulate_many(pomdp, solver_type, 100) 
+    plot_rewards(results["rewards"], solver_type)
 end
 
 main()
