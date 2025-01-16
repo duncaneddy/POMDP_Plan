@@ -242,7 +242,8 @@ main()
     "rewards": [number, number, ...],
     "Ts_min": number,
     "solver_type": "string"
-}```
+}
+```
 
 ---
 
