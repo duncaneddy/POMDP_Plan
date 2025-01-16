@@ -16,6 +16,7 @@ using FIB
 using PyPlot
 using Debugger
 using ProgressMeter
+using JSON
 
 # Parameters
 global max_end_time = 10
@@ -23,7 +24,7 @@ global max_estimated_time = 12
 global min_end_time = 6
 global min_estimated_time = 5
 global discount_factor = 0.95
-
+global NUM_SIMULATIONS = 10000
 # Define a structured action type for announcing a specific time
 struct AnnounceAction
     announced_time::Int
@@ -56,6 +57,8 @@ function define_pomdp()
                 new_state = (t, Ta, Ts)
             elseif a isa AnnounceAction
                 # Update Ta to the announced_time chosen by the action
+                # Note that the action can be any number in min_estimated_time:max_estimated_time 
+                # The paper restricts this to only the previous observed time
                 new_Ta = a.announced_time
                 new_state = (t, new_Ta, Ts)
             else
@@ -168,27 +171,48 @@ function get_policy(pomdp, solver_type)
         elapsed_time = @elapsed policy = RandomPolicy(pomdp)
     end
     println("Time to compute policy: ", elapsed_time, " seconds")
-    return policy
+    output = Dict(
+        "policy" => policy,
+        "comp_policy_time" => elapsed_time
+    )
+    return output
 end
 
 function simulate_single(pomdp, policy; verbose=true)
     step = 0
     r_sum = 0
-
+    obs_old = NaN # dummy initialization
+    iteration_details = [] 
     for (b, s, a, o, r) in stepthrough(pomdp, policy, DiscreteUpdater(pomdp), "b,s,a,o,r"; max_steps=1_000_000)
         r_sum += r
         step += 1
         t, Ta, Ts = s
         if verbose
-            println("Step $step")
+            println("Timestep: ", t)
+            println("True End Time: ", Ts)
+            println("Previous Announced Time: ", Ta)
+            println("Old Observation: ", obs_old)
             println("Action: ", a)
-            println("Timestep: $t, Announced Time: $Ta, True End Time: $Ts")
-            println("Observation: $o")
+            println("Observed Time: ", o[3])
+            obs_old = o[3]
             print_belief_states_and_probs(b)
             @show r r_sum
             println()
         end
+        
+        # save stats for analysis
+        iteration_detail = Dict(
+            "timestep" => t,
+            "Ts" => Ts,
+            "Ta_prev" => Ta,
+            "To_prev" => obs_old,
+            "action" => a,
+            "To" => o[3],
+            "reward" => r
+        )
+        push!(iteration_details, iteration_detail)
 
+        obs_old = o[3]
         if t == Ts
             if verbose
                 println("Project complete!")
@@ -196,15 +220,18 @@ function simulate_single(pomdp, policy; verbose=true)
             break
         end
     end
-    return r_sum
+    return iteration_details
 end
 
 function simulate_many(pomdp, solver_type, num_simulations)
     println("Simulating $num_simulations times")
-    policy = get_policy(pomdp, solver_type)
+    policy_out = get_policy(pomdp, solver_type)
+    policy = policy_out["policy"]
     println("Computed Policy")
     total_reward = 0
     rewards = []
+    run_details = Vector{Vector{Dict}}(undef, 0)
+
     progress = Progress(num_simulations, desc="Running simulations")
     iteration_times = []
 
@@ -213,7 +240,11 @@ function simulate_many(pomdp, solver_type, num_simulations)
             println("Simulation: ", i, " ")
         end
         start_time = now()
-        r = simulate_single(pomdp, policy, verbose=false)
+        stats_sing = simulate_single(pomdp, policy, verbose=false)
+        r = sum([step["reward"] for step in stats_sing])
+        # add stats for this run to the run_details
+        push!(run_details, stats_sing)
+
         end_time = now()
 
         total_reward += r
@@ -223,16 +254,29 @@ function simulate_many(pomdp, solver_type, num_simulations)
     end
     println("Total reward: ", total_reward)
     println("Average reward: ", total_reward / num_simulations)
-    numeric_times = [time.value for time in iteration_times]
-    average_time = mean(numeric_times)
-    println("Average iteration time in simulation: ", average_time / 1000, " seconds")
+    iter_times = [time.value / 1000 for time in iteration_times] # 1000 to convert to seconds
 
-    return rewards
+    average_time = mean(iter_times)
+    println("Average iteration time in simulation: ", average_time, " seconds")
+    
+    stats = Dict(
+        "solver_type" => solver_type,
+        "comp_policy_time" => policy_out["comp_policy_time"],
+        "rewards" => rewards, 
+        "iteration_times" => iter_times, 
+        "Ts_min" => min_end_time,
+        "Ts_max" => max_end_time,
+        "To_min" => min_estimated_time,
+        "To_max" => max_estimated_time,
+        "run_details" => run_details
+    )
+    return stats
 end
 
 function simulate(pomdp, solver_type)
     println("Using solver: $solver_type")
-    policy = get_policy(pomdp, solver_type)
+    policy_out = get_policy(pomdp, solver_type)
+    policy = policy_out["policy"]
     simulate_single(pomdp, policy)
 end 
 
@@ -253,8 +297,10 @@ function main()
     solver_type = ARGS[1]
     pomdp = define_pomdp()
     simulate(pomdp, solver_type)
-    rewards = simulate_many(pomdp, solver_type, 100)
-    plot_rewards(rewards, solver_type)
+    # results is a dictionary with keys rewards, numeric_times
+    results = simulate_many(pomdp, solver_type, NUM_SIMULATIONS) 
+    write("results.json", JSON.json(results))
+    plot_rewards(results["rewards"], solver_type)
 end
 
 main()
