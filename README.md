@@ -195,6 +195,7 @@ main()
    - The script will print a step-by-step simulation (for a single run).
    - Then it will simulate multiple runs and report average reward and iteration times.
    - A histogram of rewards is saved to `plots/histogram_<solver_type>.png`.
+   - See `results.json` for comprehensive statistics of all runs. 
 
 ---
 
@@ -205,11 +206,43 @@ main()
   - Allows you to see how the belief (probability distribution over states) evolves over time.
 
 - **Multiple-run Statistics**:
+
   - **Total reward** and **Average reward**: Higher rewards indicate better alignment of announcements (`Ta`) with the true end time (`Ts`).  
   - **Average iteration time**: Provides insight into computational performance.
+    
 
 - **Histogram**:
   - Depicts the distribution of total rewards from the runs. A narrower and higher distribution centered around higher rewards typically indicates a more consistent and accurate policy.
+- **Results JSON**
+  - See `results.json` for comprehensive statistics of all runs.
+  - It has the following structure
+    ```{
+    "run_details": [
+        [
+            # details for each timestep of a run
+            {
+                "timestep": number,
+                "Ts": number, # true end time
+                "Ta_prev": number
+                "To_prev": number | null,
+                "action": {
+                    "announced_time": number
+                } | "string",
+                "To": number,
+                "reward": number,       
+            },
+            ...
+        ],
+        ...
+    ],
+    "iteration_times": [number, number, ...],
+    "Ts_max": number,
+    "To_min": number,
+    "comp_policy_time": number,
+    "rewards": [number, number, ...],
+    "Ts_min": number,
+    "solver_type": "string"
+}```
 
 ---
 
