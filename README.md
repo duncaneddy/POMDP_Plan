@@ -216,7 +216,8 @@ main()
 - **Results JSON**
   - See `results.json` for comprehensive statistics of all runs.
   - It has the following structure
-    ```{
+    ```
+    {
     "run_details": [
         [
             # details for each timestep of a run
@@ -242,8 +243,8 @@ main()
     "rewards": [number, number, ...],
     "Ts_min": number,
     "solver_type": "string"
-}
-```
+    }
+    ```
 
 ---
 
