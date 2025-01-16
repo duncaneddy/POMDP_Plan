@@ -246,6 +246,3 @@ main()
     }
     ```
 
----
-
-**Enjoy exploring the effect of different solvers and policy outcomes for this end-time estimation problem!**
