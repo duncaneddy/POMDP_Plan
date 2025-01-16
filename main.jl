@@ -24,7 +24,7 @@ global max_estimated_time = 12
 global min_end_time = 6
 global min_estimated_time = 5
 global discount_factor = 0.95
-
+global NUM_SIMULATIONS = 10000
 # Define a structured action type for announcing a specific time
 struct AnnounceAction
     announced_time::Int
@@ -298,7 +298,7 @@ function main()
     pomdp = define_pomdp()
     simulate(pomdp, solver_type)
     # results is a dictionary with keys rewards, numeric_times
-    results = simulate_many(pomdp, solver_type, 100) 
+    results = simulate_many(pomdp, solver_type, NUM_SIMULATIONS) 
     write("results.json", JSON.json(results))
     plot_rewards(results["rewards"], solver_type)
 end

@@ -100,6 +100,7 @@ Although this is a single script, conceptually it has several components:
 4. **Simulation**  
    - *`simulate_single(pomdp, policy; verbose=true)`*: Simulates one episode, step by step, using a specific policy. 
    - *`simulate_many(pomdp, solver_type, num_simulations)`*: Runs multiple simulations and gathers statistics on rewards and runtime.
+   - Adjust the `NUM_SIMULATIONS` global variable to change the number of simulations run.
 
 5. **Visualization**  
    - *`plot_rewards(rewards, solver_type)`*: Plots a histogram of the rewards obtained across simulations.
