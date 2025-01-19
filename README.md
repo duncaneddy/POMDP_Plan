@@ -245,4 +245,6 @@ main()
     "solver_type": "string"
     }
     ```
+- **Analysis**
+  - `analysis.py` allows you to analyze the output from results.json
 
