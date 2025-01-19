@@ -70,7 +70,9 @@ function define_pomdp()
 
         observation = function(a, sp)
             t, Ta, Ts = sp
-            possible_Tos = collect(min_estimated_time:max_estimated_time)
+            min_obs_time = max(t + 1, min_estimated_time)
+            # possible observed times must be after the current timestep
+            possible_Tos = collect(min_obs_time:max_estimated_time)
 
             # If the project is done or no variance scenario:
             # just return Ts deterministically
@@ -87,7 +89,8 @@ function define_pomdp()
             end
 
             base_dist = Normal(mu, std)
-            lower = min_estimated_time
+            # the truncated normal distribution is defined from t+1 to max_estimated_time
+            lower = min_obs_time
             upper = max_estimated_time
             cdf_lower = cdf(base_dist, lower)
             cdf_upper = cdf(base_dist, upper)
