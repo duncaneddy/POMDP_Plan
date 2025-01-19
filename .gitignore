@@ -1,0 +1,5 @@
+# Ignore everything in the plots directory
+/plots/*
+
+# Ignore results
+results.json
