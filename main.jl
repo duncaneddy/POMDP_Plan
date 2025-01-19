@@ -25,6 +25,9 @@ global min_end_time = 6
 global min_estimated_time = 5
 global discount_factor = 0.95
 global NUM_SIMULATIONS = 1000
+
+include("mostlikely.jl")
+
 # Define a structured action type for announcing a specific time
 struct AnnounceAction
     announced_time::Int
@@ -70,7 +73,9 @@ function define_pomdp()
 
         observation = function(a, sp)
             t, Ta, Ts = sp
-            possible_Tos = collect(min_estimated_time:max_estimated_time)
+            min_obs_time = max(t + 1, min_estimated_time)
+            # possible observed times must be after the current timestep
+            possible_Tos = collect(min_obs_time:max_estimated_time)
 
             # If the project is done or no variance scenario:
             # just return Ts deterministically
@@ -87,7 +92,8 @@ function define_pomdp()
             end
 
             base_dist = Normal(mu, std)
-            lower = min_estimated_time
+            # the truncated normal distribution is defined from t+1 to max_estimated_time
+            lower = min_obs_time
             upper = max_estimated_time
             cdf_lower = cdf(base_dist, lower)
             cdf_upper = cdf(base_dist, upper)
@@ -156,6 +162,9 @@ function print_belief_states_and_probs(belief)
     end
 end
 
+
+
+
 function get_policy(pomdp, solver_type)
     println("Computing policy")
     if solver_type == "random"
@@ -166,6 +175,8 @@ function get_policy(pomdp, solver_type)
         elapsed_time = @elapsed policy = solve(QMDPSolver(), pomdp)
     elseif solver_type == "sarsop"
         elapsed_time = @elapsed policy = solve(SARSOPSolver(), pomdp)
+    elseif solver_type == "mostlikely"
+        elapsed_time = @elapsed policy = MostLikelyPolicy()
     else
         println("Invalid solver type: $solver_type. Using random policy by default.")
         elapsed_time = @elapsed policy = RandomPolicy(pomdp)
@@ -198,6 +209,17 @@ function simulate_single(pomdp, policy; verbose=true)
             print_belief_states_and_probs(b)
             @show r r_sum
             println()
+        end
+        if r == -100
+        # if r < -9 && policy isa MostLikelyPolicy
+            println("Reward: ", r)
+            print_belief_states_and_probs(b)
+            println("Timestep: ", t)
+            println("True End Time: ", Ts)
+            println("Previous Announced Time: ", Ta)
+            println("Old Observation: ", obs_old)
+            println("Action: ", a)
+            println("Observed Time: ", o[3])
         end
         
         # save stats for analysis
@@ -290,7 +312,7 @@ end
 function main()
     if length(ARGS) < 1
         println("Usage: julia script_name.jl <solver_type>")
-        println("Available solvers: random, fib, qmdp, sarsop")
+        println("Available solvers: random, fib, qmdp, sarsop, mostlikely")
         return
     end
     
