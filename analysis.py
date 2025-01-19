@@ -1,42 +1,78 @@
+import argparse
 import json
+import numpy as np
 
-def calculate_average_reward_from_file(file_path):
+MAX_NEGATIVE_REWARD = -100 # Make sure that this matches the WRONG_END_TIME_REWARD in main.jl
+
+def read_file(file_path):
     """
-    Calculate the average reward across all runs excluding the runs with a reward of -1.0e9.
+    Read the contents of a file and return it as a string.
 
     Args:
-        file_path (str): Path to the JSON file containing the data.
+        file_path (str): Path to the file to read.
 
     Returns:
-        float: Average reward excluding the specified runs, or None if no valid rewards exist.
+        json: JSON data
     """
     try:
         with open(file_path, 'r') as file:
-            json_data = json.load(file)
+            return json.load(file)
     except FileNotFoundError:
         print(f"Error: File not found at {file_path}")
         return None
-    except json.JSONDecodeError:
-        print(f"Error: Failed to decode JSON from the file at {file_path}")
-        return None
+    
 
-    total_reward = 0
-    valid_rewards_count = 0
+def small_rewards(json_data):
+    """
+    Return rewards excluding the runs with a reward of -1.0e9.
+
+    Args:
+        json_data (dict): JSON data.
+
+    Returns:
+        list: List of rewards excluding MAX_NEGATIVE_REWARD rewards. (Reward when Ta != Ts when Ts = t)
+    """
+    valid_rewards = []
 
     for run in json_data.get("run_details", []):
         for timestep_details in run:
             reward = timestep_details.get("reward", None)
-            if reward is not None and reward != -1.0e9:
-                total_reward += reward
-                valid_rewards_count += 1
-    print(valid_rewards_count)
+            if reward is not None and reward != MAX_NEGATIVE_REWARD:
+                valid_rewards.append(reward)
 
-    if valid_rewards_count == 0:
-        return None  # Return None if no valid rewards exist
+    return valid_rewards
 
-    return total_reward / valid_rewards_count
 
-# Example usage:
-file_path = 'results.json'
-average_reward = calculate_average_reward_from_file(file_path)
-print(f"Average Reward: {average_reward}")
+def num_changes(json_data):
+    """
+    Return the number of times a new time was announced.
+
+    Args:
+        json_data (dict): JSON data.
+
+    Returns:
+        list: Number of times for each run that a new time was announced.
+    """
+    run_details = json_data.get("run_details", [])
+    num_changes = [0] * len(run_details)
+    for i, run in enumerate(run_details):
+        for timestep_details in run:
+            action = timestep_details.get("action", {})
+            if action != 'dont_announce' and action.get("announced_time", None) is not None:
+                num_changes[i] += 1
+    return num_changes
+    
+
+def main():
+    parser = argparse.ArgumentParser(description='Process solver results.')
+    parser.add_argument('solver', type=str, help='The solver name')
+    args = parser.parse_args()
+
+    file_path = f'results/{args.solver}_results.json'   
+    json_data = read_file(file_path)
+    rewards = small_rewards(json_data)
+    print(f"Average Rewards excluding {MAX_NEGATIVE_REWARD}: {np.mean(rewards)}")
+    print(f"Avg Number of Changes per Run: {np.mean(num_changes(json_data))}")
+
+if __name__ == "__main__":
+    main()
