@@ -214,8 +214,8 @@ main()
 - **Histogram**:
   - Depicts the distribution of total rewards from the runs. A narrower and higher distribution centered around higher rewards typically indicates a more consistent and accurate policy.
 - **Results JSON**
-  - See `results.json` for comprehensive statistics of all runs.
-  - It has the following structure
+  - See `results` folder for comprehensive statistics of all runs.
+  - Each `{solver_type}_results.json` has the following structure
     ```
     {
     "run_details": [
