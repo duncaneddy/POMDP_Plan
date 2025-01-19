@@ -25,6 +25,7 @@ global min_end_time = 6
 global min_estimated_time = 5
 global discount_factor = 0.95
 global NUM_SIMULATIONS = 1000
+global WRONG_END_TIME_REWARD = -100
 
 include("mostlikely.jl")
 
@@ -122,7 +123,7 @@ function define_pomdp()
 
             # If announcing an impossible time
             if (a != :dont_announce && a.announced_time < t) || (Ts == t && Ta != t)
-                return -1000000000.0
+                return WRONG_END_TIME_REWARD
             end
 
             r = -1 * abs(Ta - Ts)
@@ -198,7 +199,7 @@ function simulate_single(pomdp, policy; verbose=true)
         r_sum += r
         step += 1
         t, Ta, Ts = s
-        if verbose
+        if verbose || r == WRONG_END_TIME_REWARD
             println("Timestep: ", t)
             println("True End Time: ", Ts)
             println("Previous Announced Time: ", Ta)
@@ -209,17 +210,6 @@ function simulate_single(pomdp, policy; verbose=true)
             print_belief_states_and_probs(b)
             @show r r_sum
             println()
-        end
-        if r == -100
-        # if r < -9 && policy isa MostLikelyPolicy
-            println("Reward: ", r)
-            print_belief_states_and_probs(b)
-            println("Timestep: ", t)
-            println("True End Time: ", Ts)
-            println("Previous Announced Time: ", Ta)
-            println("Old Observation: ", obs_old)
-            println("Action: ", a)
-            println("Observed Time: ", o[3])
         end
         
         # save stats for analysis
@@ -321,7 +311,7 @@ function main()
     simulate(pomdp, solver_type)
     # results is a dictionary with keys rewards, numeric_times
     results = simulate_many(pomdp, solver_type, NUM_SIMULATIONS) 
-    write("results.json", JSON.json(results))
+    write("results/$(solver_type)_results.json", JSON.json(results))
     plot_rewards(results["rewards"], solver_type)
 end
 
