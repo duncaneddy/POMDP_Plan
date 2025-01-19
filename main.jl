@@ -24,7 +24,7 @@ global max_estimated_time = 12
 global min_end_time = 6
 global min_estimated_time = 5
 global discount_factor = 0.95
-global NUM_SIMULATIONS = 10000
+global NUM_SIMULATIONS = 1000
 # Define a structured action type for announcing a specific time
 struct AnnounceAction
     announced_time::Int
