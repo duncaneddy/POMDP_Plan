@@ -75,7 +75,7 @@ The script models a scenario in which a project has an uncertain completion time
 
 - **Transition**: Moves forward in time and updates the state based on the chosen action. If the action is `AnnounceAction(...)`, the announced time (`Ta`) is updated accordingly.
 
-- **Observations**: After each step, we receive an observation \((t, Ta, To)\), where `To` is a noisy estimate of the true end time \(Ts\). This noisy estimate is generated via a truncated normal distribution centered around \(Ts\) with a decreasing standard deviation as \(t\) approaches \(Ts\).
+- **Observations**: After each step, we receive an observation \((t, Ta, To)\), where `To` is a noisy estimate of the true end time \(Ts\). This noisy estimate is generated via a truncated normal distribution centered around \(Ts\) with a decreasing standard deviation as \(t\) approaches \(Ts\). (Observed times are restricted to times following the current time $t$.)
 
 - **Reward**:
   - A negative reward is given proportional to the absolute difference \(|Ta - Ts|\).  
