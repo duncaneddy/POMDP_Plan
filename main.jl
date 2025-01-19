@@ -210,8 +210,8 @@ function simulate_single(pomdp, policy; verbose=true)
             @show r r_sum
             println()
         end
-
-        if r < -100 && policy isa MostLikelyPolicy
+        if r == -100
+        # if r < -9 && policy isa MostLikelyPolicy
             println("Reward: ", r)
             print_belief_states_and_probs(b)
             println("Timestep: ", t)
