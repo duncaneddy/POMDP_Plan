@@ -29,6 +29,9 @@ global WRONG_END_TIME_REWARD = -100
 
 include("mostlikely.jl")
 
+# Set seed for repro
+Random.seed!(1234)
+
 # Define a structured action type for announcing a specific time
 struct AnnounceAction
     announced_time::Int
@@ -151,11 +154,23 @@ function define_pomdp()
     return pomdp
 end
 
-function print_belief_states_and_probs(belief)
+function extract_belief_states_and_probs(belief)
     states = belief.state_list
     probs = belief.b
+    return states, probs
+end
 
-    println("States and their probabilities:")
+
+function highest_belief_state(belief)
+    states, probs = extract_belief_states_and_probs(belief)
+    max_prob = maximum(probs)
+    max_prob_index = argmax(probs)
+    return states[max_prob_index]
+end
+
+
+function print_belief_states_and_probs(belief)
+    states, probs = extract_belief_states_and_probs(belief)
     for (state, prob) in zip(states, probs)
         if prob > 0
             println("State: $state, Probability: $prob")
@@ -220,7 +235,8 @@ function simulate_single(pomdp, policy; verbose=true)
             "To_prev" => obs_old,
             "action" => a,
             "To" => o[3],
-            "reward" => r
+            "reward" => r,
+            "high_b_Ts" => highest_belief_state(b)[3]
         )
         push!(iteration_details, iteration_detail)
 
