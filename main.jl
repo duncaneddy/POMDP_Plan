@@ -132,23 +132,24 @@ function define_pomdp()
 
         reward = function(s, a)
             t, Ta, Ts = s
-            earlier = -8
-            later = -10
+            earlier = -30
+            later = -45
 
             # If announcing an impossible time
             if (a != :dont_announce && a.announced_time < t) || (Ts == t && Ta != t)
                 return WRONG_END_TIME_REWARD
             end
 
-            r = -1 * abs(Ta - Ts)
+            r = -1 * abs(Ta - Ts) # around -2 since std To is often around 2
             
 
             if a != :dont_announce && Ta != a.announced_time # announcing a new time
+                diff_announced = abs(Ta - a.announced_time) # difference between announced and true end time (probably near 1 or 2)
                 time_to_end = Ts - t
                 if Ta < Ts
-                    r += earlier * (1 / time_to_end)
+                    r += earlier * (1 / time_to_end) * diff_announced 
                 elseif Ta > Ts
-                    r += later * (1 / time_to_end)
+                    r += later * (1 / time_to_end) * diff_announced
                 end
             end
             return r
