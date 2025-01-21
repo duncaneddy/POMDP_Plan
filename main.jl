@@ -1,5 +1,6 @@
 using Pkg
 using Dates
+using PointBasedValueIteration
 
 using POMDPs
 using QuickPOMDPs
@@ -19,8 +20,8 @@ using ProgressMeter
 using JSON
 
 # Parameters
-global max_end_time = 10
-global max_estimated_time = 12
+global max_end_time = 9
+global max_estimated_time = 11
 global min_end_time = 6
 global min_estimated_time = 5
 global discount_factor = 0.95
@@ -76,20 +77,29 @@ function define_pomdp()
         end,
 
         observation = function(a, sp)
+            # We have just transitioned from (t - 1, Ta_prev, Ts) to (t, Ta, Ts)
             t, Ta, Ts = sp
-            min_obs_time = max(t + 1, min_estimated_time)
-            # possible observed times must be after the current timestep
-            possible_Tos = collect(min_obs_time:max_estimated_time)
 
             # If the project is done or no variance scenario:
             # just return Ts deterministically
-            if t >= Ts - 1
+            if t >= Ts # Used to be t >= Ts - 1
                 return Deterministic((t, Ta, Ts))
             end
 
+            # Otherwise, we have the case where the project is not done yet
+            # The minimum completion time we can observe the maximium of 
+            # the current time plus 1 (i.e. we think that after the next transition we will be done)
+            # and the minimum observed completion time (min_estimated_time)
+            min_obs_time = max(t + 1, min_estimated_time)
+
+            possible_Tos = collect(min_obs_time:max_estimated_time)
+
+            
+
             # Calculate parameters of the truncated normal
             mu = Ts
-            std = (Ts - t) / 3
+            std = (Ts - t) / 1.5
+            
             if std <= 0
                 # If no variance, fall back to Ts deterministically
                 return Deterministic((t, Ta, Ts))
@@ -116,6 +126,7 @@ function define_pomdp()
             probs ./= total_p
 
             obs_list = [(t, Ta, To_val) for To_val in possible_Tos]
+            
             return SparseCat(obs_list, probs)
         end,
 
@@ -132,7 +143,7 @@ function define_pomdp()
             r = -1 * abs(Ta - Ts)
             
 
-            if a != :dont_announce
+            if a != :dont_announce && Ta != a.announced_time # announcing a new time
                 time_to_end = Ts - t
                 if Ta < Ts
                     r += earlier * (1 / time_to_end)
@@ -187,6 +198,8 @@ function get_policy(pomdp, solver_type)
         elapsed_time = @elapsed policy = RandomPolicy(pomdp)
     elseif solver_type == "fib"
         elapsed_time = @elapsed policy = solve(FIBSolver(), pomdp)
+    elseif solver_type == "pbvi"
+        elapsed_time = @elapsed policy = solve(PBVISolver(), pomdp)
     elseif solver_type == "qmdp"
         elapsed_time = @elapsed policy = solve(QMDPSolver(), pomdp)
     elseif solver_type == "sarsop"
@@ -236,7 +249,8 @@ function simulate_single(pomdp, policy; verbose=true)
             "action" => a,
             "To" => o[3],
             "reward" => r,
-            "high_b_Ts" => highest_belief_state(b)[3]
+            "high_b_Ts" => highest_belief_state(b)[3], 
+            "t" => t,
         )
         push!(iteration_details, iteration_detail)
 
@@ -316,19 +330,33 @@ function plot_rewards(rewards, solver_type)
 end
 
 function main()
+    # arg1: solver_type, arg2: run_type
+    # Usage: julia script_name.jl <solver_type> [single|multiple]
+    
     if length(ARGS) < 1
-        println("Usage: julia script_name.jl <solver_type>")
+        println("Usage: julia script_name.jl <solver_type> [single|multiple]")
         println("Available solvers: random, fib, qmdp, sarsop, mostlikely")
         return
     end
     
     solver_type = ARGS[1]
+    run_type = length(ARGS) > 1 ? ARGS[2] : "both"
     pomdp = define_pomdp()
-    simulate(pomdp, solver_type)
-    # results is a dictionary with keys rewards, numeric_times
-    results = simulate_many(pomdp, solver_type, NUM_SIMULATIONS) 
-    write("results/$(solver_type)_results.json", JSON.json(results))
-    plot_rewards(results["rewards"], solver_type)
+    
+    if run_type == "single"
+        simulate(pomdp, solver_type)
+    elseif run_type == "multiple"
+        results = simulate_many(pomdp, solver_type, NUM_SIMULATIONS)
+        write("results/$(solver_type)_results.json", JSON.json(results))
+        plot_rewards(results["rewards"], solver_type)
+    elseif run_type == "both"
+        simulate(pomdp, solver_type)
+        results = simulate_many(pomdp, solver_type, NUM_SIMULATIONS)
+        write("results/$(solver_type)_results.json", JSON.json(results))
+        plot_rewards(results["rewards"], solver_type)
+    else
+        println("Invalid run type: $run_type. Use 'single', 'multiple', or 'both'.")
+    end
 end
 
 main()

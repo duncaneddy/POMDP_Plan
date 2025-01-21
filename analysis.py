@@ -104,7 +104,58 @@ def plot_simulation(run):
     plt.grid(True)
     plt.show()
 
+
+def std_of_obs_timestep(json_data, t, Ts = None):
+    """
+    Across all runs at timestep t if it exists, return the variance of the observations.
+    """
     
+    observations = []
+    if Ts is not None:
+        run_details = [run for run in json_data.get("run_details", []) if len(run) == Ts + 1]
+    else:
+        run_details = json_data.get("run_details", [])
+    for run in run_details:
+        if len(run) > t:
+            observation = run[t].get("To", None)
+            if observation is not None:
+                observations.append(observation)
+    return np.std(observations)
+
+
+def std_of_obs_timesteps(json_data, Ts = None):
+    """
+    Return the variance of the observations at each timestep.
+    """
+    stds = []
+    if Ts is not None:
+        run_length = Ts
+        print(f"Only considering runs with Ts = {Ts}")
+    else:
+        run_length = max([len(run) for run in json_data.get("run_details", [])])
+    # upper bound on timesteps is the length of the longest run
+    for t in range(0, run_length):
+        stds.append(std_of_obs_timestep(json_data, t, Ts))
+    return stds
+
+def std_of_obs(json_data):
+    """
+    Return the standard deviation of the observations.
+
+    Args:
+        json_data (dict): JSON data.
+
+    Returns:
+        float: Variance of the observations.
+    """
+    observations = []
+    for run in json_data.get("run_details", []):
+        for timestep_details in run:
+            observation = timestep_details.get("To", None)
+            if observation is not None:
+                observations.append(observation)
+    return np.sqrt(np.var(observations))
+  
 
 def main():
     parser = argparse.ArgumentParser(description='Process solver results.')
@@ -116,7 +167,8 @@ def main():
     run = json_data["run_details"][1] # currently looking at second run for research
 
     rewards = small_rewards(json_data)
-    plot_simulation(run)
+    # plot_simulation(run)
+    print(f"Standard Deviation of Observations at each timestep: {std_of_obs_timesteps(json_data, 7)}")
     print(f"Average Rewards excluding {MAX_NEGATIVE_REWARD}: {np.mean(rewards)}")
     print(f"Avg Number of Changes per Run: {np.mean(num_changes(json_data))}")
 
