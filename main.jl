@@ -26,7 +26,7 @@ global min_end_time = 6
 global min_estimated_time = 5
 global discount_factor = 0.95
 global NUM_SIMULATIONS = 1000
-global WRONG_END_TIME_REWARD = -100
+global WRONG_END_TIME_REWARD = -1000
 
 include("mostlikely.jl")
 
@@ -39,15 +39,13 @@ struct AnnounceAction
 end
 
 function define_pomdp()
-    # Define actions: one "dont_announce" plus an AnnounceAction for each possible time
-    base_actions = [AnnounceAction(To_val) for To_val in min_estimated_time:max_estimated_time]
-    actions = vcat([:dont_announce], base_actions)
+    # Define actions: an AnnounceAction for each possible observed time
+    actions = [AnnounceAction(To_val) for To_val in min_estimated_time:max_estimated_time]
 
     pomdp = QuickPOMDP(
         states = [(t, Ta, Ts) for t in 0:max_end_time,
                                  Ta in min_estimated_time:max_estimated_time,
                                  Ts in min_end_time:max_end_time],
-
         actions = actions,
         actiontype = Union{Symbol, AnnounceAction},
         observations = [(t, Ta, To) for t in 0:max_end_time,
@@ -61,19 +59,13 @@ function define_pomdp()
             # Move time forward, but not beyond the true end time
             t = min(t + 1, Ts)
 
-            if a == :dont_announce
-                new_state = (t, Ta, Ts)
-            elseif a isa AnnounceAction
-                # Update Ta to the announced_time chosen by the action
-                # Note that the action can be any number in min_estimated_time:max_estimated_time 
-                # The paper restricts this to only the previous observed time
-                new_Ta = a.announced_time
-                new_state = (t, new_Ta, Ts)
-            else
-                error("Invalid action: $a")
-            end
+            # Update Ta to the announced_time chosen by the action
+            # Note that the action can be any number in min_estimated_time:max_estimated_time 
+            # The paper restricts this to only the previous observed time
+            new_Ta = a.announced_time
+            sp = (t, new_Ta, Ts)
 
-            return Deterministic(new_state)
+            return Deterministic(sp)
         end,
 
         observation = function(a, sp)
@@ -136,14 +128,14 @@ function define_pomdp()
             later = -45
 
             # If announcing an impossible time
-            if (a != :dont_announce && a.announced_time < t) || (Ts == t && Ta != t)
+            if (a.announced_time < t) || (Ts == t && Ta != t)
                 return WRONG_END_TIME_REWARD
             end
 
             r = -1 * abs(Ta - Ts) # around -2 since std To is often around 2
             
 
-            if a != :dont_announce && Ta != a.announced_time # announcing a new time
+            if Ta != a.announced_time # announcing a new time
                 diff_announced = abs(Ta - a.announced_time) # difference between announced and true end time (probably near 1 or 2)
                 time_to_end = Ts - t
                 if Ta < Ts
