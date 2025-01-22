@@ -3,6 +3,7 @@ using Dates
 using PointBasedValueIteration
 
 using POMDPs
+using POMCPOW
 using QuickPOMDPs
 using POMDPPolicies
 using POMDPSimulators
@@ -85,8 +86,6 @@ function define_pomdp()
             min_obs_time = max(t + 1, min_estimated_time)
 
             possible_Tos = collect(min_obs_time:max_estimated_time)
-
-            
 
             # Calculate parameters of the truncated normal
             mu = Ts
@@ -193,6 +192,8 @@ function get_policy(pomdp, solver_type)
         elapsed_time = @elapsed policy = solve(FIBSolver(), pomdp)
     elseif solver_type == "pbvi"
         elapsed_time = @elapsed policy = solve(PBVISolver(), pomdp)
+    elseif solver_type == "pomcpow"
+        elapsed_time = @elapsed policy = solve(POMCPOWSolver(), pomdp) # How should I adjust criterion
     elseif solver_type == "qmdp"
         elapsed_time = @elapsed policy = solve(QMDPSolver(), pomdp)
     elseif solver_type == "sarsop"
