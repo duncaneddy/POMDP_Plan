@@ -21,7 +21,7 @@ function POMDPs.action(policy::MostLikelyPolicy, belief, state=nothing)
     if observed_time != Ta
         return AnnounceAction(observed_time)
     else
-        return :dont_announce
+        return AnnounceAction(Ta)
     end
 end
 
