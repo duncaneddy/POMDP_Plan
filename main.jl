@@ -21,13 +21,14 @@ using ProgressMeter
 using JSON
 
 # Parameters
-global max_end_time = 37
-global max_estimated_time = 38
-global min_end_time = 8
-global min_estimated_time = 7
-global discount_factor = 0.95
+global max_end_time = 14
+global max_estimated_time = 14
+global min_end_time = 6
+global min_estimated_time = 6
+global discount_factor = 0.99
 global NUM_SIMULATIONS = 1000
-global WRONG_END_TIME_REWARD = -1000
+global WRONG_END_TIME_REWARD = -10000
+global IMPOSSIBLE_TIME_REWARD = -10000
 
 include("mostlikely.jl")
 
@@ -48,7 +49,7 @@ function define_pomdp()
                                  Ta in min_estimated_time:max_estimated_time,
                                  Ts in min_end_time:max_end_time],
         actions = actions,
-        actiontype = Union{Symbol, AnnounceAction},
+        actiontype = AnnounceAction,
         observations = [(t, Ta, To) for t in 0:max_end_time,
                                      Ta in min_estimated_time:max_estimated_time,
                                      To in min_estimated_time:max_estimated_time],
@@ -73,9 +74,9 @@ function define_pomdp()
             # We have just transitioned from (t - 1, Ta_prev, Ts) to (t, Ta, Ts)
             t, Ta, Ts = sp
 
-            # If the project is done or no variance scenario:
+            # If the project is done or we are at the timestep before the maximum project completion time
             # just return Ts deterministically
-            if t >= Ts # Used to be t >= Ts - 1
+            if t >= Ts || t + 1 == max_estimated_time
                 return Deterministic((t, Ta, Ts))
             end
 
@@ -122,21 +123,36 @@ function define_pomdp()
         end,
 
         reward = function(s, a)
+            # Reward for taking action a in state s
             t, Ta, Ts = s
             earlier = -30
             later = -45
+            r = 0
 
             # If announcing an impossible time
-            if (a.announced_time < t) || (Ts == t && Ta != t)
-                return WRONG_END_TIME_REWARD
+            # Currently, time t + 1
+            # After time t - 1, we announced Ta
+            # Then, after time t, we announced a.announced_time
+            # Now we must announce a time >= t and, 
+            if (a.announced_time < t)
+                return IMPOSSIBLE_TIME_REWARD
             end
 
-            r = -1 * abs(Ta - Ts) # around -2 since std To is often around 2
-            
+            if Ts == t
+                # if Ts = t, we must announce t = Ts
+                if a.announced_time != Ts
+                    return WRONG_END_TIME_REWARD
+                end
+                return 0
+            end
 
+            if Ta == a.announced_time # not updating your announcement
+                r = -1 * abs(Ta - Ts) # penalize for the difference between announced and true end time
+            end
+            
             if Ta != a.announced_time # announcing a new time
                 diff_announced = abs(Ta - a.announced_time) # difference between announced and true end time (probably near 1 or 2)
-                time_to_end = Ts - t
+                time_to_end = Ts - t # Will never be 0 because we check for Ts == t above
                 if Ta < Ts
                     r += earlier * (1 / time_to_end) * diff_announced 
                 elseif Ta > Ts
@@ -152,6 +168,10 @@ function define_pomdp()
             num_states = length(possible_states)
             probabilities = fill(1.0 / num_states, num_states)
             return SparseCat(possible_states, probabilities)
+        end,
+        isterminal = function(s)
+            t, Ta, Ts = s
+            return t == Ts + 1
         end
     )
     return pomdp
@@ -264,9 +284,6 @@ end
 
 function simulate_many(pomdp, solver_type, num_simulations, policy)
     println("Simulating $num_simulations times")
-    # policy_out = get_policy(pomdp, solver_type)
-    # policy = policy_out["policy"]
-    # println("Computed Policy")
     total_reward = 0
     rewards = []
     run_details = Vector{Vector{Dict}}(undef, 0)
@@ -300,7 +317,6 @@ function simulate_many(pomdp, solver_type, num_simulations, policy)
     
     stats = Dict(
         "solver_type" => solver_type,
-        "comp_policy_time" => policy_out["comp_policy_time"],
         "rewards" => rewards, 
         "iteration_times" => iter_times, 
         "Ts_min" => min_end_time,
@@ -311,13 +327,6 @@ function simulate_many(pomdp, solver_type, num_simulations, policy)
     )
     return stats
 end
-
-# function simulate(pomdp, solver_type, policy)
-#     println("Using solver: $solver_type")
-#     # policy_out = get_policy(pomdp, solver_type)
-#     # policy = policy_out["policy"]
-#     simulate_single(pomdp, policy)
-# end 
 
 function plot_rewards(rewards, solver_type)
     hist(rewards, bins=30)
@@ -354,6 +363,9 @@ function main()
         simulate_single(pomdp, policy)
     elseif run_type == "multiple"
         results = simulate_many(pomdp, solver_type, NUM_SIMULATIONS, policy)
+        if read_policy == false
+            results["comp_policy_time"] = policy_out["comp_policy_time"]
+        end
         write("results/$(solver_type)_results.json", JSON.json(results))
         plot_rewards(results["rewards"], solver_type)
     elseif run_type == "both"
