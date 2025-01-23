@@ -56,11 +56,14 @@ def num_changes(json_data):
     """
     run_details = json_data.get("run_details", [])
     num_changes = [0] * len(run_details)
+    Ta_prev = None
     for i, run in enumerate(run_details):
         for timestep_details in run:
             action = timestep_details.get("action", {})
-            if action != 'dont_announce' and action.get("announced_time", None) is not None:
+            Ta = action.get("announced_time")
+            if Ta != Ta_prev and Ta_prev is not None:
                 num_changes[i] += 1
+            Ta_prev = Ta
     return num_changes
     
 
@@ -164,8 +167,8 @@ def main():
 
     file_path = f'results/{args.solver}_results.json'   
     json_data = read_file(file_path)
-    run = json_data["run_details"][1] # currently looking at second run for research
-
+    run = json_data["run_details"][3] # currently looking at second run for research
+    # find a run in json_data where r > 0
     rewards = small_rewards(json_data)
     # plot_simulation(run)
     print(f"Standard Deviation of Observations at each timestep: {std_of_obs_timesteps(json_data, 7)}")

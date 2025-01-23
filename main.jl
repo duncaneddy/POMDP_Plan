@@ -1,7 +1,7 @@
 using Pkg
 using Dates
 using PointBasedValueIteration
-
+using JLD2
 using POMDPs
 using POMCPOW
 using QuickPOMDPs
@@ -21,10 +21,10 @@ using ProgressMeter
 using JSON
 
 # Parameters
-global max_end_time = 9
-global max_estimated_time = 11
-global min_end_time = 6
-global min_estimated_time = 5
+global max_end_time = 37
+global max_estimated_time = 38
+global min_end_time = 8
+global min_estimated_time = 7
 global discount_factor = 0.95
 global NUM_SIMULATIONS = 1000
 global WRONG_END_TIME_REWARD = -1000
@@ -91,8 +91,8 @@ function define_pomdp()
             mu = Ts
             std = (Ts - t) / 1.5
             
-            if std <= 0
-                # If no variance, fall back to Ts deterministically
+            if Ts - t <= 0 
+                # The task is done, so we should observe the true end time
                 return Deterministic((t, Ta, Ts))
             end
 
@@ -204,6 +204,9 @@ function get_policy(pomdp, solver_type)
         println("Invalid solver type: $solver_type. Using random policy by default.")
         elapsed_time = @elapsed policy = RandomPolicy(pomdp)
     end
+
+    save("policies/$solver_type.jld2", "policy", policy)
+
     println("Time to compute policy: ", elapsed_time, " seconds")
     output = Dict(
         "policy" => policy,
@@ -259,11 +262,11 @@ function simulate_single(pomdp, policy; verbose=true)
     return iteration_details
 end
 
-function simulate_many(pomdp, solver_type, num_simulations)
+function simulate_many(pomdp, solver_type, num_simulations, policy)
     println("Simulating $num_simulations times")
-    policy_out = get_policy(pomdp, solver_type)
-    policy = policy_out["policy"]
-    println("Computed Policy")
+    # policy_out = get_policy(pomdp, solver_type)
+    # policy = policy_out["policy"]
+    # println("Computed Policy")
     total_reward = 0
     rewards = []
     run_details = Vector{Vector{Dict}}(undef, 0)
@@ -309,12 +312,12 @@ function simulate_many(pomdp, solver_type, num_simulations)
     return stats
 end
 
-function simulate(pomdp, solver_type)
-    println("Using solver: $solver_type")
-    policy_out = get_policy(pomdp, solver_type)
-    policy = policy_out["policy"]
-    simulate_single(pomdp, policy)
-end 
+# function simulate(pomdp, solver_type, policy)
+#     println("Using solver: $solver_type")
+#     # policy_out = get_policy(pomdp, solver_type)
+#     # policy = policy_out["policy"]
+#     simulate_single(pomdp, policy)
+# end 
 
 function plot_rewards(rewards, solver_type)
     hist(rewards, bins=30)
@@ -327,25 +330,35 @@ function main()
     # arg1: solver_type, arg2: run_type
     # Usage: julia script_name.jl <solver_type> [single|multiple]
     
-    if length(ARGS) < 1
-        println("Usage: julia script_name.jl <solver_type> [single|multiple]")
+    if length(ARGS) < 2
+        println("Usage: julia script_name.jl <solver_type> <single|multiple|both> [new]")
         println("Available solvers: random, fib, qmdp, sarsop, mostlikely")
         return
     end
     
     solver_type = ARGS[1]
-    run_type = length(ARGS) > 1 ? ARGS[2] : "both"
+    run_type = ARGS[2]
+    read_policy = length(ARGS) > 2 ? false : true
     pomdp = define_pomdp()
-    
+
+    # Load policy if it exists or compute it
+    if read_policy
+        policy = load("policies/$solver_type.jld2", "policy")
+    else 
+        policy_out = get_policy(pomdp, solver_type)
+        policy = policy_out["policy"]
+    end
+
+    # Run the simulation
     if run_type == "single"
-        simulate(pomdp, solver_type)
+        simulate_single(pomdp, policy)
     elseif run_type == "multiple"
-        results = simulate_many(pomdp, solver_type, NUM_SIMULATIONS)
+        results = simulate_many(pomdp, solver_type, NUM_SIMULATIONS, policy)
         write("results/$(solver_type)_results.json", JSON.json(results))
         plot_rewards(results["rewards"], solver_type)
     elseif run_type == "both"
         simulate(pomdp, solver_type)
-        results = simulate_many(pomdp, solver_type, NUM_SIMULATIONS)
+        results = simulate_many(pomdp, solver_type, NUM_SIMULATIONS, policy)
         write("results/$(solver_type)_results.json", JSON.json(results))
         plot_rewards(results["rewards"], solver_type)
     else
