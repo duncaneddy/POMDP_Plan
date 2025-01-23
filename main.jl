@@ -22,9 +22,7 @@ using JSON
 
 # Parameters
 global max_end_time = 14
-global max_estimated_time = 14
 global min_end_time = 6
-global min_estimated_time = 6
 global discount_factor = 0.99
 global NUM_SIMULATIONS = 1000
 global WRONG_END_TIME_REWARD = -10000
@@ -42,17 +40,17 @@ end
 
 function define_pomdp()
     # Define actions: an AnnounceAction for each possible observed time
-    actions = [AnnounceAction(To_val) for To_val in min_estimated_time:max_estimated_time]
+    actions = [AnnounceAction(To_val) for To_val in min_end_time:max_end_time]
 
     pomdp = QuickPOMDP(
         states = [(t, Ta, Ts) for t in 0:max_end_time,
-                                 Ta in min_estimated_time:max_estimated_time,
+                                 Ta in min_end_time:max_end_time,
                                  Ts in min_end_time:max_end_time],
         actions = actions,
         actiontype = AnnounceAction,
         observations = [(t, Ta, To) for t in 0:max_end_time,
-                                     Ta in min_estimated_time:max_estimated_time,
-                                     To in min_estimated_time:max_estimated_time],
+                                     Ta in min_end_time:max_end_time,
+                                     To in min_end_time:max_end_time],
 
         discount = discount_factor,
 
@@ -62,7 +60,7 @@ function define_pomdp()
             t = min(t + 1, Ts)
 
             # Update Ta to the announced_time chosen by the action
-            # Note that the action can be any number in min_estimated_time:max_estimated_time 
+            # Note that the action can be any number in min_end_time:max_end_time 
             # The paper restricts this to only the previous observed time
             new_Ta = a.announced_time
             sp = (t, new_Ta, Ts)
@@ -76,17 +74,17 @@ function define_pomdp()
 
             # If the project is done or we are at the timestep before the maximum project completion time
             # just return Ts deterministically
-            if t >= Ts || t + 1 == max_estimated_time
+            if t >= Ts || t + 1 == max_end_time
                 return Deterministic((t, Ta, Ts))
             end
 
             # Otherwise, we have the case where the project is not done yet
             # The minimum completion time we can observe the maximium of 
             # the current time plus 1 (i.e. we think that after the next transition we will be done)
-            # and the minimum observed completion time (min_estimated_time)
-            min_obs_time = max(t + 1, min_estimated_time)
+            # and the minimum observed completion time (min_end_time)
+            min_obs_time = max(t + 1, min_end_time)
 
-            possible_Tos = collect(min_obs_time:max_estimated_time)
+            possible_Tos = collect(min_obs_time:max_end_time)
 
             # Calculate parameters of the truncated normal
             mu = Ts
@@ -98,9 +96,9 @@ function define_pomdp()
             end
 
             base_dist = Normal(mu, std)
-            # the truncated normal distribution is defined from t+1 to max_estimated_time
+            # the truncated normal distribution is defined from t+1 to max_end_time
             lower = min_obs_time
-            upper = max_estimated_time
+            upper = max_end_time
             cdf_lower = cdf(base_dist, lower)
             cdf_upper = cdf(base_dist, upper)
             denom = cdf_upper - cdf_lower
@@ -163,7 +161,7 @@ function define_pomdp()
         end,
 
         initialstate = function()
-            possible_states = [(0, Ta, Ts) for Ta in min_estimated_time:max_estimated_time,
+            possible_states = [(0, Ta, Ts) for Ta in min_end_time:max_end_time,
                                             Ts in min_end_time:max_end_time]
             num_states = length(possible_states)
             probabilities = fill(1.0 / num_states, num_states)
@@ -321,8 +319,8 @@ function simulate_many(pomdp, solver_type, num_simulations, policy)
         "iteration_times" => iter_times, 
         "Ts_min" => min_end_time,
         "Ts_max" => max_end_time,
-        "To_min" => min_estimated_time,
-        "To_max" => max_estimated_time,
+        "To_min" => min_end_time,
+        "To_max" => max_end_time,
         "run_details" => run_details
     )
     return stats
