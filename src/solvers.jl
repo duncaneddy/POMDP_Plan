@@ -1,4 +1,11 @@
-# Enumerated type for solver types
+# Enumerated type for selecting solver
+@enum SolverType begin
+    FIB
+    PBVI
+    POMCPOW
+    QMDP
+    SARSOP
+end
 
 
 function get_policy(pomdp, solver_type, output_dir; verbose::Bool=false)

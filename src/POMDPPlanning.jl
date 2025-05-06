@@ -72,6 +72,11 @@ function parse_commandline()
             arg_type = Bool
             default = false
             nargs = 0
+        "--debug", "-D"
+            help = "Enable debug output"
+            arg_type = Bool
+            default = false
+            nargs = 0
         "--output-dir", "-o"
             help = "Directory to save output files"
             arg_type = String
@@ -90,9 +95,34 @@ function main()
     
     # Add your CLI logic here
     if args["command"] == "solve"
-        if args["verbose"]
+        if args["debug"]
             println("Running with: $(args)♮")
         end
+
+        # Check if the min-end-time is less than the max-end-time
+        if args["min-end-time"] > args["max-end-time"]
+            println("Error: min-end-time must be less than or equal to max-end-time")
+            return 1
+        end
+
+        # Check if the discount factor is between 0 and 1
+        if args["discount"] <= 0 || args["discount"] >= 1
+            println("Error: discount factor must be between 0 and 1")
+            return 1
+        end
+
+        # Check if the number of simulations is positive
+        if args["num_simulations"] <= 0
+            println("Error: number of simulations must be positive")
+            return 1
+        end
+
+        # Check that the solver type is one of the valid options (defined by the enum SolverType in solvers.jl)
+        if !(uppercase(args["solver"]) in collect(string.(instances(SolverType))))
+            println("Error: invalid solver type. Valid options are: $(join(string.(instances(MyEnum)), ", "))")
+            return 1
+        end
+
         
 
         # If a seed is provided, set the random seed
