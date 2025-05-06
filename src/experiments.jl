@@ -143,7 +143,9 @@ function run_experiment(
         generate_experiment_plots(
             sim_results, 
             experiment_dir, 
-            true_end_time, 
+            true_end_time,
+            min_end_time,
+            max_end_time,
             simulation_number=sim_num
         )
     end
@@ -155,7 +157,7 @@ function run_experiment(
 end
 
 # Generate plots for a single simulation run
-function generate_experiment_plots(results, output_dir, true_end_time; simulation_number=1)
+function generate_experiment_plots(results, output_dir, true_end_time, min_end_time, max_end_time; simulation_number=1)
     # Create plots directory
     plots_dir = joinpath(output_dir, "plots", "simulation_$simulation_number")
     if !isdir(plots_dir)
@@ -177,11 +179,20 @@ function generate_experiment_plots(results, output_dir, true_end_time; simulatio
         ylabel = "Announced Time (Ta)",
         legend = :topleft,
         size = (800, 600),
-        grid = true
+        grid = true,
+        xlims = (0, max_end_time),  # Set x-axis limits
+        ylims = (0, max_end_time)   # Set y-axis limits
     )
+    
+    # Add dashed diagonal line for x=y (current time) up to true end time
+    plot!([0, true_end_time], [0, true_end_time], label=nothing, color=:gray, linestyle=:dash, linewidth=1.5)
     
     # Add horizontal line for true end time
     hline!([true_end_time], label="True End Time", color=:black, linewidth=2)
+    
+    # Add horizontal lines for min and max end times (without labels to keep them out of legend)
+    hline!([min_end_time], label=nothing, color=:red, linestyle=:dash, linewidth=1.5)
+    hline!([max_end_time], label=nothing, color=:red, linestyle=:dash, linewidth=1.5)
     
     # First, collect all observation points across all solvers
     all_observations = Dict()
@@ -241,7 +252,8 @@ function generate_experiment_plots(results, output_dir, true_end_time; simulatio
         ylabel = "Accumulated Reward",
         legend = :bottomleft,
         size = (800, 600),
-        grid = true
+        grid = true,
+        xlims = (0, max_end_time)  # Set x-axis limits
     )
     
     # Plot accumulated reward trajectory for each solver
