@@ -1,5 +1,20 @@
+# IDE Ignores
+.vscode/
+.idea/
+
+# OS specific ignores
+.DS_Store
+Thumbs.db
+
+# Ignore Python files
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
 # Ignore everything in the plots directory
 /plots/*
+old/*
 
 # Ignore results
-results.json
+results/*

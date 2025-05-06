@@ -1,0 +1,43 @@
+name = "POMDPPlanning"
+uuid = "6ca25ce5-f639-4b46-9364-e32404ca816c"
+authors = ["Duncan Eddy <duncan.eddy@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+FIB = "13b007ba-0ca8-5af2-9adf-bc6a6301e25a"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+NativeSARSOP = "a07c76ea-660d-4c9a-8028-2e6dbd212cb8"
+POMCPOW = "4c53ee00-974c-466f-8fa5-8dd73959bbab"
+POMDPTools = "7588e00f-9cae-40de-98dc-e0c70c48cdd7"
+POMDPs = "a93abf59-7444-517b-a68a-c42f96afdd7d"
+PkgVersion = "eebad327-c553-4316-9ea0-9fa01ccd7688"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+PointBasedValueIteration = "835c131e-675f-4498-8e2c-c054c75556e1"
+QMDP = "3aa3ecc9-5a5d-57c8-8188-3e47bd8068d2"
+QuickPOMDPs = "8af83fb2-a731-493c-9049-9e19dbce6165"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+
+[compat]
+ArgParse = "1.2.0"
+Distributions = "0.25.119"
+FIB = "0.4.5"
+JLD2 = "0.5.13"
+JSON = "0.21.4"
+LinearAlgebra = "1.11.0"
+NativeSARSOP = "0.1.3"
+POMCPOW = "0.3.11"
+POMDPTools = "1.1.0"
+POMDPs = "1.0.0"
+PkgVersion = "0.3.3"
+Plots = "1.40.13"
+PointBasedValueIteration = "0.2.4"
+QMDP = "0.1.8"
+QuickPOMDPs = "0.2.15"
+Random = "1.11.0"
+
+[bin]
+mycli = "bin/cli.jl"

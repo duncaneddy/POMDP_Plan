@@ -42,7 +42,11 @@ Pkg.add([
     "Debugger",
     "ProgressMeter",
     "LinearAlgebra",
-    "Random"
+    "Random",
+    "JSON",
+    "JLD2",
+    "PointBasedValueIteration",
+    "Dates",
 ])
 ```
 
