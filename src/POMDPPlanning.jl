@@ -23,6 +23,10 @@ using Distributions
 using Random
 using LinearAlgebra
 using Plots
+using JSON
+using Statistics
+using ProgressMeter
+using Dates
 
 const VERSION = string(PkgVersion.@Version)
 
@@ -69,20 +73,25 @@ function parse_commandline()
             default = 0.99
         "--verbose", "-v"
             help = "Enable verbose output"
-            arg_type = Bool
-            default = false
             nargs = 0
         "--debug", "-D"
             help = "Enable debug output"
-            arg_type = Bool
-            default = false
             nargs = 0
         "--output-dir", "-o"
             help = "Directory to save output files"
             arg_type = String
             default = "output"
+        "--policy-file", "-p"
+            help = "Path to policy file (.jld2) for evaluation"
+            arg_type = String
+        "--true-end-time", "-t"
+            help = "Fixed true end time for evaluation (if not provided, random values will be used)"
+            arg_type = Int
+        "--initial-announce", "-a"
+            help = "Initial announced time (default is min_end_time from policy metadata)"
+            arg_type = Int
         "command"
-            help = "Command to execute"
+            help = "Command to execute (solve or evaluate)"
             required = true
     end
     
@@ -146,7 +155,83 @@ function main()
             verbose=args["verbose"]
         )
 
+    elseif args["command"] == "evaluate"
+        if args["policy-file"] === nothing
+            println("Error: policy file is required for evaluation")
+            return 1
+        end
+        
+        # Load policy and metadata
+        if !isfile(args["policy-file"])
+            println("Error: policy file not found: $(args["policy-file"])")
+            return 1
+        end
+        
+        loaded_data = load(args["policy-file"])
+        policy = loaded_data["policy"]
+        metadata = loaded_data["metadata"]
+        
+        if args["debug"]
+            println("Loaded policy from $(args["policy-file"])")
+            println("Metadata: $metadata")
+        end
+        
+        # Create POMDP with parameters from metadata
+        min_end_time = metadata["min_end_time"]
+        max_end_time = metadata["max_end_time"]
+        discount_factor = metadata["discount_factor"]
+        
+        # Override with command line arguments if provided
+        if args["min-end-time"] !== nothing
+            min_end_time = args["min-end-time"]
+        end
+        if args["max-end-time"] !== nothing
+            max_end_time = args["max-end-time"]
+        end
+        if args["discount"] !== nothing
+            discount_factor = args["discount"]
+        end
+        
+        # Validate parameter compatibility
+        if min_end_time != metadata["min_end_time"] || max_end_time != metadata["max_end_time"]
+            println("Warning: Evaluation parameters don't match policy metadata")
+            println("  Policy: min_end_time=$(metadata["min_end_time"]), max_end_time=$(metadata["max_end_time"])")
+            println("  Evaluation: min_end_time=$min_end_time, max_end_time=$max_end_time")
+            
+            confirm_continue = false
+            while !confirm_continue
+                print("Continue anyway? (y/n): ")
+                response = lowercase(readline())
+                if response in ["y", "yes"]
+                    confirm_continue = true
+                elseif response in ["n", "no"]
+                    println("Evaluation cancelled")
+                    return 0
+                end
+            end
+        end
+        
+        # Create POMDP for evaluation
+        pomdp = define_pomdp(
+            min_end_time,
+            max_end_time,
+            discount_factor,
+            verbose=args["verbose"]
+        )
+        
+        # Run evaluation
+        evaluate_policy(
+            pomdp, 
+            policy, 
+            args["num_simulations"], 
+            args["output-dir"],
+            fixed_true_end_time=args["true-end-time"],
+            initial_announce=args["initial-announce"],
+            verbose=args["verbose"]
+        )
+        
     else
+        # Handle unknown command
         println("Unknown command: $(args["command"])")
     end
     
