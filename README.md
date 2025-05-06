@@ -1,254 +1,147 @@
-# README
+# POMDPPlanning
 
-This repository contains a Julia script that defines and simulates a Partially Observable Markov Decision Process (POMDP) for a project end-time estimation problem. The code demonstrates how to:
-1. Define a POMDP model using the [QuickPOMDPs.jl](https://github.com/JuliaPOMDP/QuickPOMDPs.jl) interface.
-2. Solve the POMDP using different solvers (random, FIB, QMDP, SARSOP).
-3. Simulate the resulting policies and collect rewards.
-4. Plot the distribution of rewards across multiple simulations.
+A Julia framework for solving and simulating Partially Observable Markov Decision Process (POMDP) for project end-time estimation problems.
 
-Below is a high-level overview of the different sections in the script.
+## 1. Problem Description
 
----
+This package models a scenario where a project has an uncertain completion time. The goal is to accurately estimate (or *announce*) when the project will finish based on partial observations of its progress.
 
-## Table of Contents
+### Model Components
 
-1. [Dependencies](#dependencies)  
-2. [Problem Description](#problem-description)  
-3. [Project Structure](#project-structure)  
-4. [Script Overview](#script-overview)  
-5. [How to Run](#how-to-run)  
-6. [Interpretation of Results](#interpretation-of-results)
+- **States**: Represented as tuples `(t, Ta, Tt)` where:
+  - `t`: Current timestep in the project (from 0 to the true end time)
+  - `Ta`: Currently *announced* completion time
+  - `Tt`: *True* end time (unknown to the decision-maker)
 
----
+- **Actions**: 
+  - `AnnounceAction(announced_time)`: Announce/revise the estimated completion time
 
-## Dependencies
+- **Transitions**: 
+  - Time moves forward deterministically with each step
+  - The announced time (`Ta`) is updated based on the chosen action
 
-This script relies on several Julia packages, all of which can be installed using the Julia package manager. To ensure all dependencies are satisfied, open the Julia REPL and type:
-
-```julia
-using Pkg
-Pkg.add([
-    "POMDPs",
-    "QuickPOMDPs",
-    "POMDPPolicies",
-    "POMDPSimulators",
-    "POMDPModelTools",
-    "QMDP",
-    "NativeSARSOP",
-    "Distributions",
-    "POMDPTools",
-    "FIB",
-    "PyPlot",
-    "Debugger",
-    "ProgressMeter",
-    "LinearAlgebra",
-    "Random",
-    "JSON",
-    "JLD2",
-    "PointBasedValueIteration",
-    "Dates",
-])
-```
-
-Below is a short summary of the roles each package plays:
-
-- **POMDPs.jl**: Framework for defining POMDP problems in Julia.
-- **QuickPOMDPs.jl**: Simplifies the definition of POMDP models.
-- **POMDPPolicies.jl** and **POMDPSimulators.jl**: Tools for simulating policies in POMDPs.
-- **QMDP.jl**, **FIB.jl**, **NativeSARSOP.jl**: Solvers for POMDPs (QMDP, FIB, and SARSOP respectively).
-- **PyPlot.jl**: Used for plotting histograms of reward distributions.
-- **ProgressMeter.jl**: Progress bar for simulation loops.
-- **Debugger.jl**: Used for debugging (optional in normal usage).
-- **Dates.jl**, **Random.jl**, **Distributions.jl**, **LinearAlgebra.jl**: Standard Julia libraries for dates, random generation, probability distributions, and linear algebra.
-
----
-
-## Problem Description
-
-The script models a scenario in which a project has an uncertain completion time. We want to estimate (or *announce*) when the project will finish based on partial observations of its progress.
-
-- **States**: A state is a tuple \((t, Ta, Ts)\) where:
-  - \(t\) is the current time step in the project (from 0 to the true end time).
-  - \(Ta\) is the currently *announced* time for completion.
-  - \(Ts\) is the *true* end time (unknown to the decision-maker, but modeled in the simulation).
-  - The parameters `max_end_time`, `min_end_time`, `max_estimated_time`, and `min_estimated_time` define the range of possible true end times (`Ts`), current announced times (`Ta`), and the ongoing time steps (`t`). By modifying these global variables, you can easily shrink or expand the state space to reflect different project durations or estimate ranges for completion times.
-    
-- **Actions**:
-  1. `:dont_announce`: Do not revise the announced time.
-  2. `AnnounceAction(announced_time)`: Revise the announced time to `announced_time`.
-
-- **Transition**: Moves forward in time and updates the state based on the chosen action. If the action is `AnnounceAction(...)`, the announced time (`Ta`) is updated accordingly.
-
-- **Observations**: After each step, we receive an observation \((t, Ta, To)\), where `To` is a noisy estimate of the true end time \(Ts\). This noisy estimate is generated via a truncated normal distribution centered around \(Ts\) with a decreasing standard deviation as \(t\) approaches \(Ts\). (Observed times are restricted to times following the current time $t$.)
+- **Observations**: 
+  - After each step, a noisy estimate of the true end time is generated
+  - These observations become more accurate as the project approaches completion
+  - Observations follow a truncated normal distribution centered on the true end time
 
 - **Reward**:
-  - A negative reward is given proportional to the absolute difference \(|Ta - Ts|\).  
-  - Large negative penalties occur if the announcement is infeasible (e.g., announcing a time that is already past or not matching the actual completion time once the project is finished).
-  - Small negative cost for each step to encourage fewer announcements.
+  - Penalties for inaccurate announcements (proportional to the difference from true end time)
+  - Larger penalties for announcing impossible times (e.g., time already passed)
+  - Different penalties for overestimating vs. underestimating completion time
+  - Small ongoing costs to encourage fewer announcement changes
 
----
+## 2. Setup / Installation
 
-## Project Structure
 
-Although this is a single script, conceptually it has several components:
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/yourusername/POMDPPlanning.git
+   cd POMDPPlanning
+   ```
 
-1. **POMDP Definition**  
-   - *`define_pomdp()`*: Creates a `QuickPOMDP` model with state space, action space, observations, transition, observation model, and reward function.
+2. Install as a local package (optional):
+   ```julia
+   using Pkg
+   Pkg.develop(path=".")
+   ```
 
-2. **Helpers**  
-   - *`print_belief_states_and_probs(belief)`*: Utility to print out the belief distribution over states.
+## 3. Running CLI
 
-3. **Policy Computation**  
-   - *`get_policy(pomdp, solver_type)`*: Chooses a solver, computes a policy, and measures the solver’s runtime.
+The package includes a command-line interface for solving POMDPs and evaluating policies.
 
-4. **Simulation**  
-   - *`simulate_single(pomdp, policy; verbose=true)`*: Simulates one episode, step by step, using a specific policy. 
-   - *`simulate_many(pomdp, solver_type, num_simulations)`*: Runs multiple simulations and gathers statistics on rewards and runtime.
-   - Adjust the `NUM_SIMULATIONS` global variable to change the number of simulations run.
+### Solve a POMDP
 
-5. **Visualization**  
-   - *`plot_rewards(rewards, solver_type)`*: Plots a histogram of the rewards obtained across simulations.
-
-6. **Main Entry Point**  
-   - *`main()`*: Parses command-line arguments and:
-     1. Creates the POMDP.
-     2. Solves it using the chosen solver.
-     3. Performs a single demonstration run (verbose).
-     4. Runs multiple simulations and plots the distribution of rewards.
-
----
-
-## Script Overview
-
-```julia
-# 1. Load dependencies
-using Pkg
-using Dates
-using POMDPs
-using QuickPOMDPs
-...
-
-# 2. Define a custom action type
-struct AnnounceAction
-    announced_time::Int
-end
-
-# 3. Define the POMDP model
-function define_pomdp()
-    ...
-    return pomdp
-end
-
-# 4. Utility functions
-function print_belief_states_and_probs(belief)
-    ...
-end
-
-# 5. Compute policies using different solvers
-function get_policy(pomdp, solver_type)
-    ...
-end
-
-# 6. Simulation functions
-function simulate_single(pomdp, policy; verbose=true)
-    ...
-end
-
-function simulate_many(pomdp, solver_type, num_simulations)
-    ...
-end
-
-function simulate(pomdp, solver_type)
-    ...
-end
-
-# 7. Visualization
-function plot_rewards(rewards, solver_type)
-    ...
-end
-
-# 8. Main entry point
-function main()
-    ...
-end
-
-main()
+```bash
+julia bin/cli.jl solve --solvers SARSOP --min-end-time 10 --max-end-time 20 --discount 0.99 --num_simulations 100
 ```
 
----
+Options:
+- `--solvers, -s`: Solver type (SARSOP, FIB, QMDP, PBVI, POMCPOW)
+- `--min-end-time, -l`: Minimum possible end time
+- `--max-end-time, -u`: Maximum possible end time
+- `--discount, -d`: Discount factor (between 0 and 1)
+- `--num_simulations, -n`: Number of simulations to run
+- `--verbose, -v`: Enable verbose output
+- `--debug, -D`: Enable debug output
+- `--output-dir, -o`: Directory for saving results
+- `--seed, -r`: Random seed for reproducibility
 
-## How to Run
+### Evaluate a Policy
 
-1. **Clone or Download** this repository.
+```bash
+julia bin/cli.jl evaluate --policy-file output/policy_sarsop.jld2 --num_simulations 100
+```
 
-2. **Install the required packages** (see [Dependencies](#dependencies)).
+Options:
+- `--policy-file, -p`: Path to the saved policy file (.jld2)
+- `--true-end-time, -t`: Fixed true end time for evaluation
+- `--initial-announce, -a`: Initial announced time
+- Plus the options from the `solve` command
 
-3. **Run the script** from the command line, specifying one of the solvers:
-   ```bash
-   julia script_name.jl sarsop
-   ```
-   The valid solver types are:
-   - `random`
-   - `fib`
-   - `qmdp`
-   - `sarsop`
+### Run an Experiment
 
-   If no valid solver type is passed, the script defaults to the random policy.
+Run an experiment comparing specific solvers:
 
-4. **View Outputs**:
-   - The script will print a step-by-step simulation (for a single run).
-   - Then it will simulate multiple runs and report average reward and iteration times.
-   - A histogram of rewards is saved to `plots/histogram_<solver_type>.png`.
-   - See `results.json` for comprehensive statistics of all runs. 
+```bash
+julia bin/cli.jl experiments --solvers=FIB,QMDP,SARSOP --min-end-time=10 --max-end-time=20 --num_simulations=5 --verbose
+```
 
----
+Run an experiment with all solvers:
 
-## Interpretation of Results
+```bash
+julia bin/cli.jl experiments --solvers=all --min-end-time=10 --max-end-time=20 --num_simulations=5 --verbose
+```
 
-- **Single-run Output**:
-  - Step-by-step transitions, actions, observations, and resulting rewards.  
-  - Allows you to see how the belief (probability distribution over states) evolves over time.
+## 4. Project Structure
 
-- **Multiple-run Statistics**:
+```
+POMDPPlanning/
+├── bin/
+│   └── cli.jl                   # Command-line interface entry point
+├── src/
+│   ├── POMDPPlanning.jl         # Main module file
+│   ├── problem.jl               # POMDP definition
+│   ├── solvers.jl               # Solver implementations
+│   ├── simulation.jl            # Policy simulation functions
+│   ├── analysis.jl              # Evaluation and plotting functions
+│   ├── utils.jl                 # Utility functions
+│   └── experiments.jl           # Experiment definitions
+├── Project.toml                 # Project configuration
+└── README.md                    # This file
+```
 
-  - **Total reward** and **Average reward**: Higher rewards indicate better alignment of announcements (`Ta`) with the true end time (`Ts`).  
-  - **Average iteration time**: Provides insight into computational performance.
-    
+### Key Components
 
-- **Histogram**:
-  - Depicts the distribution of total rewards from the runs. A narrower and higher distribution centered around higher rewards typically indicates a more consistent and accurate policy.
-- **Results JSON**
-  - See `results` folder for comprehensive statistics of all runs.
-  - Each `{solver_type}_results.json` has the following structure
-    ```
-    {
-    "run_details": [
-        [
-            # details for each timestep of a run
-            {
-                "timestep": number,
-                "Ts": number, # true end time
-                "Ta_prev": number
-                "To_prev": number | null,
-                "action": {
-                    "announced_time": number
-                } | "string",
-                "To": number,
-                "reward": number,       
-            },
-            ...
-        ],
-        ...
-    ],
-    "iteration_times": [number, number, ...],
-    "Ts_max": number,
-    "To_min": number,
-    "comp_policy_time": number,
-    "rewards": [number, number, ...],
-    "Ts_min": number,
-    "solver_type": "string"
-    }
-    ```
-- **Analysis**
-  - `analysis.py` allows you to analyze the output from results.json
+- **POMDPPlanning.jl**: Main module that integrates all components
+- **problem.jl**: Defines the POMDP structure with state space, transition function, observation model, and reward function
+- **solvers.jl**: Implements different solvers including FIB, PBVI, POMCPOW, QMDP, and SARSOP
+- **simulation.jl**: Functions for single and batch simulations of policies
+- **analysis.jl**: Metrics calculation and visualization tools
 
+### Output Structure
+
+```
+output/
+├── policy_sarsop.jld2           # Saved policy file
+├── policy_sarsop.json           # Policy metadata (human-readable)
+├── evaluation_results.json      # Detailed evaluation metrics
+└── plots/                       # Generated visualizations
+    ├── reward_distribution.png
+    ├── error_metrics.png
+    ├── num_changes.png
+    └── undershoot_overshoot.png
+```
+
+The evaluation outputs include comprehensive metrics such as initial vs. final errors, number of announcement changes, and whether the final estimate was an undershoot or overshoot of the true end time.
+
+## Analysis Capabilities
+
+The framework provides tools for visualizing and analyzing policy performance:
+
+1. **Reward distribution**: Histogram showing the performance across simulations
+2. **Error metrics**: Visualization of initial errors, final errors, and change magnitudes
+3. **Number of changes**: Distribution of how many times estimates were revised
+4. **Undershoot vs. overshoot**: Analysis of whether policies tend to underestimate or overestimate completion times
+
+These visualizations help in comparing different solvers and understanding their behavior in project end-time estimation tasks.

@@ -51,10 +51,10 @@ function parse_commandline()
         "--seed", "-r"
             help = "Random seed for reproducibility"
             arg_type = Int
-        "--solver", "-s"
-            help = "Solver type to use (e.g., random, fib, pbvi, pomcpow, qmdp, sarsop)"
+        "--solvers", "-s"
+            help = "Comma-separated list of solvers (e.g FIG, PVBI, POMCPOW, QMDP, SARSOP) to compare in experiments, or 'all' for all solvers"
             arg_type = String
-            default = "default_value"
+            default = "all"
         "--num_simulations", "-n"
             help = "Number of simulations to run"
             arg_type = Int
@@ -80,16 +80,18 @@ function parse_commandline()
         "--output-dir", "-o"
             help = "Directory to save output files"
             arg_type = String
-            default = "output"
+            default = "results"
         "--policy-file", "-p"
             help = "Path to policy file (.jld2) for evaluation"
             arg_type = String
         "--true-end-time", "-t"
             help = "Fixed true end time for evaluation (if not provided, random values will be used)"
             arg_type = Int
+            default = nothing
         "--initial-announce", "-a"
             help = "Initial announced time (default is min_end_time from policy metadata)"
             arg_type = Int
+            default = nothing
         "command"
             help = "Command to execute (solve or evaluate)"
             required = true
@@ -101,59 +103,88 @@ end
 # Main function to run the CLI
 function main()
     args = parse_commandline()
+
+    if args["debug"]
+        println("Running with: $(args)♮")
+    end
+
+    # Check if the min-end-time is less than the max-end-time
+    if args["min-end-time"] > args["max-end-time"]
+        println("Error: min-end-time must be less than or equal to max-end-time")
+        return 1
+    end
+
+    if args["initial-announce"] !== nothing && (args["initial-announce"] < args["min-end-time"] || args["initial-announce"] > args["max-end-time"])
+        println("Error: initial-announce must be between min-end-time and max-end-time")
+        return 1
+    end
+
+    # Check if the discount factor is between 0 and 1
+    if args["discount"] <= 0 || args["discount"] >= 1
+        println("Error: discount factor must be between 0 and 1")
+        return 1
+    end
+
+    # Check if the number of simulations is positive
+    if args["num_simulations"] <= 0
+        println("Error: number of simulations must be positive")
+        return 1
+    end
+
+    # Parse solvers list
+    solvers_str = args["solvers"]
+    if solvers_str == "all"
+        solvers = string.(instances(SolverType))
+    else
+        solvers = string.(split(solvers_str, ","))
+    end
+
+    # Validate each solver
+    for solver in solvers
+        if !(uppercase(solver) in collect(string.(instances(SolverType))))
+            println("Error: invalid solver type: $solver. Valid options are: $(join(string.(instances(SolverType)), ", ")) or 'all'")
+            return 1
+        end
+    end
+    
+    # If a seed is provided, set the random seed
+    if args["seed"] != nothing
+        println("Setting random seed to $(args["seed"])")
+        Random.seed!(args["seed"])
+    end
     
     # Add your CLI logic here
     if args["command"] == "solve"
-        if args["debug"]
-            println("Running with: $(args)♮")
-        end
-
-        # Check if the min-end-time is less than the max-end-time
-        if args["min-end-time"] > args["max-end-time"]
-            println("Error: min-end-time must be less than or equal to max-end-time")
-            return 1
-        end
-
-        # Check if the discount factor is between 0 and 1
-        if args["discount"] <= 0 || args["discount"] >= 1
-            println("Error: discount factor must be between 0 and 1")
-            return 1
-        end
-
-        # Check if the number of simulations is positive
-        if args["num_simulations"] <= 0
-            println("Error: number of simulations must be positive")
-            return 1
-        end
-
-        # Check that the solver type is one of the valid options (defined by the enum SolverType in solvers.jl)
-        if !(uppercase(args["solver"]) in collect(string.(instances(SolverType))))
-            println("Error: invalid solver type. Valid options are: $(join(string.(instances(MyEnum)), ", "))")
-            return 1
-        end
-
-        
-
-        # If a seed is provided, set the random seed
-        if args["seed"] != nothing
-            println("Setting random seed to $(args["seed"])")
-            Random.seed!(args["seed"])
-        end
 
         # Create planning POMDP
         pomdp = define_pomdp(
             args["min-end-time"],
             args["max-end-time"],
             args["discount"],
-            verbose=args["verbose"]
+            verbose=args["verbose"],
+            initial_announce=args["initial-announce"],
+            fixed_true_end_time=args["true-end-time"]
         )
 
-        policy = get_policy(
-            pomdp,
-            args["solver"],
-            args["output-dir"],
-            verbose=args["verbose"]
-        )
+        solvers = split(solvers_str, ",")
+
+        
+
+        for solver in solvers
+            
+            if args["verbose"]
+                println("Running solver: $solver")
+            end
+            
+            # Solve the POMDP using the specified solver
+            policy = get_policy(
+                pomdp,
+                solver,
+                args["output-dir"],
+                verbose=args["verbose"]
+            )
+        end
+
 
     elseif args["command"] == "evaluate"
         if args["policy-file"] === nothing
@@ -227,6 +258,29 @@ function main()
             args["output-dir"],
             fixed_true_end_time=args["true-end-time"],
             initial_announce=args["initial-announce"],
+            verbose=args["verbose"]
+        )
+
+    elseif args["command"] == "experiments"
+        if args["debug"]
+            println("Running experiment with: $(args)")
+        end
+
+        if args["num_simulations"] <= 0
+            println("Error: number of simulations must be positive")
+            return 1
+        end
+
+        # Run the experiment
+        run_experiment(
+            args["min-end-time"],
+            args["max-end-time"],
+            solvers,
+            args["num_simulations"],
+            args["output-dir"],
+            fixed_true_end_time=args["true-end-time"],
+            initial_announce=args["initial-announce"],
+            discount_factor=args["discount"],
             verbose=args["verbose"]
         )
         

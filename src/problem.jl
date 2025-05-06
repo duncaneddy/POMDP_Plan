@@ -3,7 +3,7 @@ struct AnnounceAction
     announced_time::Int
 end
 
-function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; verbose::Bool = false)
+function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false)
     # Constants for rewards
     IMPOSSIBLE_TIME_REWARD = -1000
     WRONG_END_TIME_REWARD = -1000
@@ -136,8 +136,18 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
         end,
 
         initialstate = function()
-            possible_states = [(0, Ta, Tt) for Ta in min_end_time:max_end_time,
-                                            Tt in min_end_time:max_end_time]
+            if initial_announce == nothing
+                initial_announce = min_end_time
+            end
+
+            if isnothing(fixed_true_end_time)
+                # Randomly select a true end time
+                possible_states = [(0, initial_announce, Tt) for Tt in min_end_time:max_end_time]
+            else
+                # Use the fixed true end time
+                possible_states = [(0, initial_announce, fixed_true_end_time)]
+            end
+            
             num_states = length(possible_states)
             probabilities = fill(1.0 / num_states, num_states)
             return SparseCat(possible_states, probabilities)
