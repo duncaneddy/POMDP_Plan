@@ -33,41 +33,37 @@ function POMDPs.action(policy::MostLikelyPolicy, belief, state=nothing)
     end
 end
 
-struct ObservedTimePolicy <: Policy
-    observation_history::Vector{Int}
+struct HistoryUpdater <: POMDPs.Updater end
 
-    ObservedTimePolicy() = new(Int[])
+POMDPs.initialize_belief(updater::HistoryUpdater, d) = Any[d]
+
+function POMDPs.update(updater::HistoryUpdater, belief, action, observation)
+    # Update the belief with the new observation
+    if observation isa Tuple && length(observation) >= 3
+        observed_time = observation[3]
+    else
+        observed_time = observation  # Fallback if observation is not a tuple
+    end
+
+    push!(belief, observed_time)
+    return belief
 end
 
-function POMDPs.update(policy::ObservedTimePolicy, observation)
-    push!(policy.observation_history, observation)
-    return policy
+struct ObservedTimePolicy <: Policy 
+    default_announce_value::Int
+
+    ObservedTimePolicy(default_announce_value::Int=0) = new(default_announce_value)
 end
 
 function POMDPs.action(policy::ObservedTimePolicy, belief, state=nothing)
-    # NOTE: THIS DOESNT WORK YET, IT IS THE SAME AS THE MOST LIKELY POLICY
-    # BECAUSE THE OBSERVATION HISTORY IS NOT UPDATED
-    if isempty(policy.observation_history)
-        # If no observations have been made, return a default action
-        # Extract the most likely state from the belief
-        states = belief.state_list
-            probs = belief.b
-            max_prob_index = argmax(probs)
-            # s is the most likely state
-            s = states[max_prob_index]
-
-            # Unpack state variables
-            t, Ta, To = s
-
-            # To is the most likely true end time
-            observed_time = To
-
-            return AnnounceAction(observed_time)
-    else
-        return AnnounceAction(policy.observation_history[end])
-    end
+    # if isempty(belief)
+    #     return AnnounceAction(policy.default_announce_value)  # Default action if no observations
+    # else
+    #     # Extract the most recent observation
+    #     return AnnounceAction(last(belief))
+    # end
+    return AnnounceAction(policy.default_announce_value)
 end
-
 
 function get_policy(pomdp, solver_type, output_dir;
                     min_end_time::Int=10, 
@@ -93,7 +89,7 @@ function get_policy(pomdp, solver_type, output_dir;
     elseif solver_type == "MOSTLIKELY"
         elapsed_time = @elapsed policy = MostLikelyPolicy()
     elseif solver_type == "OBSERVEDTIME"
-        elapsed_time = @elapsed policy = ObservedTimePolicy()
+        elapsed_time = @elapsed policy = ObservedTimePolicy(min_end_time)
     else
         println("Error: Invalid solver type: $solver_type.")
         exit(1)

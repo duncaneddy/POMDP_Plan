@@ -99,8 +99,15 @@ function run_experiment(
             # Run simulation
             sim_trajectory = []
             reward_accumulator = 0.0
+
+            # If the policy is an ObservedTimePolicy use a HistoryUpdater otherwise use a DiscreteUpdater
+            if policy isa ObservedTimePolicy
+                updater = HistoryUpdater()
+            else
+                updater = DiscreteUpdater(pomdp)
+            end
             
-            for (b, s, a, o, r) in stepthrough(pomdp, policy, DiscreteUpdater(pomdp), "b,s,a,o,r"; max_steps=1_000_000)
+            for (b, s, a, o, r) in stepthrough(pomdp, policy, updater, "b,s,a,o,r"; max_steps=1_000_000)
                 t, Ta, Tt = s
                 
                 # Update accumulated reward
