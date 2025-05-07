@@ -23,6 +23,7 @@ using Distributions
 using Random
 using LinearAlgebra
 using Plots
+using StatsPlots
 using JSON
 using Statistics
 using ProgressMeter

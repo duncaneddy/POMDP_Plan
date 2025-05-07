@@ -53,7 +53,7 @@ The package includes a command-line interface for solving POMDPs and evaluating 
 ### Solve a POMDP
 
 ```bash
-julia bin/cli.jl solve --solvers SARSOP --min-end-time 10 --max-end-time 20 --discount 0.99 --num_simulations 100
+julia bin/cli.jl solve --solvers SARSOP --min-end-time 10 --max-end-time 20 --discount 0.99
 ```
 
 Options:
@@ -61,7 +61,6 @@ Options:
 - `--min-end-time, -l`: Minimum possible end time
 - `--max-end-time, -u`: Maximum possible end time
 - `--discount, -d`: Discount factor (between 0 and 1)
-- `--num_simulations, -n`: Number of simulations to run
 - `--verbose, -v`: Enable verbose output
 - `--debug, -D`: Enable debug output
 - `--output-dir, -o`: Directory for saving results
@@ -70,7 +69,7 @@ Options:
 ### Evaluate a Policy
 
 ```bash
-julia bin/cli.jl evaluate --policy-file output/policy_sarsop.jld2 --num_simulations 100
+julia bin/cli.jl evaluate --policy-file results/policy_sarsop.jld2 --num_simulations 10
 ```
 
 Options:
@@ -81,10 +80,10 @@ Options:
 
 ### Run an Experiment
 
-Run an experiment comparing specific solvers:
+Run an experiment comparing specific solvers (with fixed seed for reproducibility):
 
 ```bash
-julia bin/cli.jl experiments --solvers=FIB,QMDP,SARSOP --min-end-time=10 --max-end-time=20 --num_simulations=5 --verbose
+julia bin/cli.jl experiments --solvers=QMDP,SARSOP --min-end-time=10 --max-end-time=20 --num_simulations=5 --verbose -r 0
 ```
 
 Run an experiment with all solvers:

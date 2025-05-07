@@ -66,9 +66,7 @@ function run_experiment(
         end
         
         # Set seed for reproducibility across policies
-        # Use a different seed for each simulation, but derived from the base seed
-        sim_seed = seed + sim_num
-        Random.seed!(sim_seed)
+        Random.seed!(sim_num)
         
         # Generate true end time for this simulation
         if fixed_true_end_time !== nothing
@@ -84,8 +82,9 @@ function run_experiment(
             initial_Ta = min_end_time
         end
         
+
         if verbose
-            println("Simulation $sim_num (seed: $sim_seed)")
+            println("Simulation $sim_num")
         end
         
         # Run simulation for each policy
@@ -95,7 +94,7 @@ function run_experiment(
             end
             
             # Reset RNG to same state for each policy
-            Random.seed!(sim_seed)
+            Random.seed!(sim_num)
             
             # Run simulation
             sim_trajectory = []
@@ -200,9 +199,9 @@ function generate_experiment_plots(results, output_dir, true_end_time, min_end_t
     # Add horizontal line for true end time
     hline!([true_end_time], label="True End Time", color=:black, linewidth=2)
     
-    # Add horizontal lines for min and max end times (without labels to keep them out of legend)
-    hline!([min_end_time], label=nothing, color=:red, linestyle=:dash, linewidth=1.5)
-    hline!([max_end_time], label=nothing, color=:red, linestyle=:dash, linewidth=1.5)
+    # Add horizontal lines for min and max end times
+    hline!([min_end_time], label="Min End Time", color=:red, linestyle=:dash, linewidth=1.5)
+    hline!([max_end_time], label="Max End Time", color=:red, linestyle=:dash, linewidth=1.5)
     
     # First, collect all observation points across all solvers
     all_observations = Dict()
@@ -221,11 +220,10 @@ function generate_experiment_plots(results, output_dir, true_end_time, min_end_t
         timesteps_obs,
         observations,
         label = "Observations",
-        color = :gray,
-        marker = :star8,
-        markersize = 8,
-        markerstrokewidth = 0,
-        alpha = 0.7
+        color=:purple,
+        marker=:diamond,
+        markersize=6,
+        markerstrokewidth=0
     )
     
     # Plot announced time trajectory for each solver

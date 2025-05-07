@@ -49,22 +49,8 @@ function create_evaluation_plots(stats, output_dir)
                  color=:purple)
     
     savefig(p3, joinpath(plots_dir, "num_changes.png"))
-    
-    # Plot undershoot vs overshoot frequency
-    undershoot_count = sum(stats["final_undershoot"])
-    overshoot_count = length(stats["final_undershoot"]) - undershoot_count
-    
-    p4 = pie(["Undershoot", "Overshoot"], 
-           [undershoot_count, overshoot_count],
-           title="Final Announcement Type",
-           legend=false,
-           colors=[:blue, :orange],
-           annotations=(1:2, [text("$undershoot_count\n($(round(100*undershoot_count/length(stats["final_undershoot"]), digits=1))%)", 8),
-                           text("$overshoot_count\n($(round(100*overshoot_count/length(stats["final_undershoot"]), digits=1))%)", 8)]))
-    
-    savefig(p4, joinpath(plots_dir, "undershoot_overshoot.png"))
-    
-    return [p1, p2, p3, p4]
+        
+    return [p1, p2, p3]
 end
 
 # Add these functions to src/analysis.jl
@@ -79,7 +65,7 @@ function plot_belief_distribution(belief, true_end_time, min_end_time, max_end_t
     # Aggregate probabilities by end time (may have multiple states with same end time)
     for (state, prob) in zip(states, probs)
         Tt = state[3]
-        end_time_probs[Tt] = get(end_time_probs, Tt, 0.0) + prob
+        end_time_probs[Tt] = prob
     end
     
     # Create x-axis with all possible end times
@@ -95,7 +81,8 @@ function plot_belief_distribution(belief, true_end_time, min_end_time, max_end_t
         legend=false,
         fillalpha=0.7,
         color=:blue,
-        size=(800, 400)
+        size=(800, 400),
+        xticks=(x_values, x_values)
     )
     
     # Add vertical line for true end time
@@ -103,8 +90,8 @@ function plot_belief_distribution(belief, true_end_time, min_end_time, max_end_t
     
     # Add the highest belief state as text annotation
     highest_end_time = x_values[argmax(y_values)]
-    annotate!(highest_end_time, maximum(y_values) * 1.05, 
-              text("Highest Belief: $highest_end_time", 10, :center))
+    # annotate!(highest_end_time, maximum(y_values) * 1.05, 
+    #           text("Highest Belief: $highest_end_time", 10, :center))
     
     return p
 end
@@ -122,20 +109,19 @@ function plot_announce_time_evolution(run_details, true_end_time, min_end_time, 
         legend=:topleft,
         size=(800, 500),
         grid=true,
-        xlims=(0, true_end_time + 2),
-        ylims=(min_end_time - 1, max_end_time + 1)
+        xlims = (0, max_end_time),  # Set x-axis limits
+        ylims = (0, max_end_time)   # Set y-axis limits
     )
     
     # Add dashed diagonal line for t=y (current time) up to true end time
-    plot!([0, true_end_time], [0, true_end_time], 
-         label="Current Time", color=:gray, linestyle=:dash, linewidth=1.5)
+    plot!([0, true_end_time], [0, true_end_time], label=nothing, color=:gray, linestyle=:dash, linewidth=1.5)
     
     # Add horizontal line for true end time
-    hline!([true_end_time], label="True End Time", color=:red, linewidth=2)
+    hline!([true_end_time], label=nothing, color=:black, linewidth=2)
     
     # Add horizontal lines for min and max end times
-    hline!([min_end_time], label="Min End Time", color=:lightblue, linestyle=:dash)
-    hline!([max_end_time], label="Max End Time", color=:lightblue, linestyle=:dash)
+    hline!([min_end_time], label=nothing, color=:red, linestyle=:dash, linewidth=1.5)
+    hline!([max_end_time], label=nothing, color=:red, linestyle=:dash, linewidth=1.5)
     
     # Plot the announced time trajectory
     plot!(
@@ -256,21 +242,15 @@ function plot_observation_probability(pomdp, state, true_end_time, min_end_time,
         title="$(title_prefix)Observation Probability at t=$(t)",
         xlabel="Possible Observed End Time",
         ylabel="Probability",
-        legend=false,
+        legend=true,
         fillalpha=0.7,
         color=:purple,
-        size=(800, 400)
+        size=(800, 400),
+        xticks=(x_values, x_values)  # Set ticks at integer positions
     )
     
     # Add vertical line for true end time
     vline!([true_end_time], label="True End Time", linewidth=2, color=:red, linestyle=:dash)
-    
-    # Add expected observation (mean of distribution)
-    expected_obs = sum(x_values .* y_values)
-    if !isnan(expected_obs) && !isapprox(expected_obs, 0.0)
-        vline!([expected_obs], label="Expected Observation", linewidth=2, 
-              color=:green, linestyle=:dot)
-    end
     
     return p
 end
