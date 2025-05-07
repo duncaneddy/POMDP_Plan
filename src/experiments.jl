@@ -288,12 +288,67 @@ function generate_experiment_plots(results, output_dir, true_end_time, min_end_t
     # Save Plot 2
     savefig(p2, joinpath(plots_dir, "accumulated_reward_vs_simulation_time.png"))
     
-    # Combined Plot: Side-by-side
-    p_combined = plot(p1, p2, layout = (1, 2), size = (1600, 600))
+    # Plot 3: Error evolution 
+    p3 = generate_error_plot(results, output_dir, simulation_number, min_end_time, max_end_time)
+    
+    # Combined Plot: Side-by-side (now including 3 plots)
+    p_combined = plot(p1, p2, p3, layout = (1, 3), size = (2400, 600))
     savefig(p_combined, joinpath(plots_dir, "combined_plots.png"))
     
     # Return the plot objects in case they're needed
-    return p1, p2, p_combined
+    return p1, p2, p3, p_combined
+end
+
+function generate_error_plot(results, output_dir, simulation_number, min_end_time, max_end_time)
+    # Create plots directory
+    plots_dir = joinpath(output_dir, "plots", "simulation_$simulation_number")
+    if !isdir(plots_dir)
+        mkpath(plots_dir)
+    end
+    
+    # Extract solver types
+    solver_types = collect(keys(results))
+    
+    # Choose colors and markers for each solver
+    colors = [:blue, :red, :green, :purple, :orange, :brown, :black, :cyan]
+    line_styles = [:solid, :dash, :dot, :dashdot, :dashdotdot]
+    
+    # Plot error evolution
+    p_error = plot(
+        title = "Error Evolution (Sim #$simulation_number)",
+        xlabel = "Simulation Time (t)",
+        ylabel = "Error",
+        legend = :topleft,
+        size = (800, 600),
+        grid = true,
+        ylims = (0, max_end_time - min_end_time)  # Set y-axis limits
+    )
+    
+    # Plot error for each solver
+    for (i, (solver, trajectory)) in enumerate(results)
+        color_idx = mod(i-1, length(colors)) + 1
+        style_idx = mod(i-1, length(line_styles)) + 1
+        
+        # Extract timesteps and errors
+        timesteps = [step["timestep"] for step in trajectory]
+        errors = [abs(step["action"] - step["true_end_time"]) for step in trajectory]
+        
+        # Plot the error trajectory
+        plot!(
+            p_error,
+            timesteps,
+            errors,
+            label = solver,
+            color = colors[color_idx],
+            linestyle = line_styles[style_idx],
+            linewidth = 2
+        )
+    end
+    
+    # Save error plot
+    savefig(p_error, joinpath(plots_dir, "error_evolution.png"))
+    
+    return p_error
 end
 
 # Generate aggregate performance plots across all simulations

@@ -69,7 +69,7 @@ Options:
 ### Evaluate a Policy
 
 ```bash
-julia bin/cli.jl evaluate --policy-file results/policy_sarsop.jld2 --num_simulations 10
+julia bin/cli.jl evaluate --policy-file results/policy_sarsop.jld2 --num_simulations 10 -r 0
 ```
 
 Options:

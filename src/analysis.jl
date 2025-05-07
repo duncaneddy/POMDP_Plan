@@ -65,7 +65,7 @@ function plot_belief_distribution(belief, true_end_time, min_end_time, max_end_t
     # Aggregate probabilities by end time (may have multiple states with same end time)
     for (state, prob) in zip(states, probs)
         Tt = state[3]
-        end_time_probs[Tt] = prob
+        end_time_probs[Tt] = get(end_time_probs, Tt, 0.0) + prob
     end
     
     # Create x-axis with all possible end times
@@ -192,7 +192,7 @@ function plot_reward_evolution(run_details; title_prefix="")
     return p
 end
 
-function plot_observation_probability(pomdp, state, true_end_time, min_end_time, max_end_time; title_prefix="")
+function plot_observation_probability(pomdp, state, true_end_time, min_end_time, max_end_time, actual_observation=nothing; title_prefix="")
     t, Ta, Tt = state
     
     # Skip if at or past end time
@@ -252,6 +252,51 @@ function plot_observation_probability(pomdp, state, true_end_time, min_end_time,
     # Add vertical line for true end time
     vline!([true_end_time], label="True End Time", linewidth=2, color=:red, linestyle=:dash)
     
+    # Add vertical line for actual observation if provided
+    if actual_observation !== nothing
+        vline!([actual_observation], label="Actual Observation", linewidth=2, color=:green, linestyle=:dash)
+    end
+    
+    return p
+end
+
+function plot_error_evolution(run_details; title_prefix="")
+    # Extract data
+    timesteps = [step["timestep"] for step in run_details]
+    announced_errors = [step["announced_error"] for step in run_details]
+    belief_errors = [step["belief_error"] for step in run_details]
+    
+    p = plot(
+        title="$(title_prefix)Error Evolution",
+        xlabel="Simulation Time (t)",
+        ylabel="Error",
+        legend=:topleft,
+        size=(800, 500),
+        grid=true
+    )
+    
+    # Plot announced error
+    plot!(
+        timesteps,
+        announced_errors,
+        label="Announced Error",
+        color=:red,
+        marker=:circle,
+        markersize=4,
+        linewidth=2
+    )
+    
+    # Plot belief error
+    plot!(
+        timesteps,
+        belief_errors,
+        label="Belief Error",
+        color=:blue,
+        marker=:triangle,
+        markersize=4,
+        linewidth=2
+    )
+    
     return p
 end
 
@@ -278,6 +323,10 @@ function create_debug_plots(pomdp, run_details, min_end_time, max_end_time, outp
     # Plot reward evolution
     p_reward = plot_reward_evolution(run_details)
     savefig(p_reward, joinpath(plots_dir, "reward_evolution.png"))
+
+    # Plot error evolution
+    p_error = plot_error_evolution(run_details)
+    savefig(p_error, joinpath(plots_dir, "error_evolution.png"))
     
     # Plot belief distributions if available
     if belief_history !== nothing && plot_beliefs
@@ -324,7 +373,8 @@ function create_debug_plots(pomdp, run_details, min_end_time, max_end_time, outp
                 state,
                 true_end_time,
                 min_end_time,
-                max_end_time
+                max_end_time,
+                step["To"]
             )
             
             if p_obs !== nothing
