@@ -66,3 +66,293 @@ function create_evaluation_plots(stats, output_dir)
     
     return [p1, p2, p3, p4]
 end
+
+# Add these functions to src/analysis.jl
+
+function plot_belief_distribution(belief, true_end_time, min_end_time, max_end_time, timestep; title_prefix="")
+    states, probs = extract_belief_states_and_probs(belief)
+    
+    # Extract only the Tt (true end time) component and its probability
+    end_times = [s[3] for s in states]
+    end_time_probs = Dict{Int, Float64}()
+    
+    # Aggregate probabilities by end time (may have multiple states with same end time)
+    for (state, prob) in zip(states, probs)
+        Tt = state[3]
+        end_time_probs[Tt] = get(end_time_probs, Tt, 0.0) + prob
+    end
+    
+    # Create x-axis with all possible end times
+    x_values = collect(min_end_time:max_end_time)
+    y_values = [get(end_time_probs, x, 0.0) for x in x_values]
+    
+    p = bar(
+        x_values,
+        y_values,
+        title="$(title_prefix)Belief Distribution at t=$(timestep)",
+        xlabel="Possible End Time",
+        ylabel="Probability",
+        legend=false,
+        fillalpha=0.7,
+        color=:blue,
+        size=(800, 400)
+    )
+    
+    # Add vertical line for true end time
+    vline!([true_end_time], label="True End Time", linewidth=2, color=:red, linestyle=:dash)
+    
+    # Add the highest belief state as text annotation
+    highest_end_time = x_values[argmax(y_values)]
+    annotate!(highest_end_time, maximum(y_values) * 1.05, 
+              text("Highest Belief: $highest_end_time", 10, :center))
+    
+    return p
+end
+
+function plot_announce_time_evolution(run_details, true_end_time, min_end_time, max_end_time; 
+                                     title_prefix="", include_observations=true)
+    # Extract data
+    timesteps = [step["timestep"] for step in run_details]
+    announced_times = [step["action"] for step in run_details]
+    
+    p = plot(
+        title="$(title_prefix)Announced Time vs Simulation Time",
+        xlabel="Simulation Time (t)",
+        ylabel="Announced Time",
+        legend=:topleft,
+        size=(800, 500),
+        grid=true,
+        xlims=(0, true_end_time + 2),
+        ylims=(min_end_time - 1, max_end_time + 1)
+    )
+    
+    # Add dashed diagonal line for t=y (current time) up to true end time
+    plot!([0, true_end_time], [0, true_end_time], 
+         label="Current Time", color=:gray, linestyle=:dash, linewidth=1.5)
+    
+    # Add horizontal line for true end time
+    hline!([true_end_time], label="True End Time", color=:red, linewidth=2)
+    
+    # Add horizontal lines for min and max end times
+    hline!([min_end_time], label="Min End Time", color=:lightblue, linestyle=:dash)
+    hline!([max_end_time], label="Max End Time", color=:lightblue, linestyle=:dash)
+    
+    # Plot the announced time trajectory
+    plot!(
+        timesteps,
+        announced_times,
+        label="Announced Time",
+        color=:blue,
+        marker=:circle,
+        markersize=6,
+        linewidth=2
+    )
+    
+    # Include observations if requested
+    if include_observations
+        observations = [step["To"] for step in run_details]
+        scatter!(
+            timesteps,
+            observations,
+            label="Observations",
+            color=:purple,
+            marker=:diamond,
+            markersize=6,
+            markerstrokewidth=0
+        )
+    end
+    
+    return p
+end
+
+function plot_reward_evolution(run_details; title_prefix="")
+    # Extract data
+    timesteps = [step["timestep"] for step in run_details]
+    rewards = [step["reward"] for step in run_details]
+    cumulative_rewards = [step["cumulative_reward"] for step in run_details]
+    
+    p = plot(
+        title="$(title_prefix)Reward Evolution",
+        xlabel="Simulation Time (t)",
+        ylabel="Reward",
+        legend=:bottomleft,
+        size=(800, 500),
+        grid=true
+    )
+    
+    # Plot step rewards
+    plot!(
+        timesteps,
+        rewards,
+        label="Step Reward",
+        color=:green,
+        marker=:circle,
+        markersize=4,
+        linewidth=1,
+        linealpha=0.5
+    )
+    
+    # Plot cumulative rewards on secondary y-axis
+    plot!(
+        twinx(),
+        timesteps,
+        cumulative_rewards,
+        label="Cumulative Reward",
+        color=:blue,
+        linewidth=2,
+        ylabel="Cumulative Reward"
+    )
+    
+    return p
+end
+
+function plot_observation_probability(pomdp, state, true_end_time, min_end_time, max_end_time; title_prefix="")
+    t, Ta, Tt = state
+    
+    # Skip if at or past end time
+    if t >= Tt
+        return nothing
+    end
+    
+    # Create dummy action to use in observation model
+    a = AnnounceAction(Ta)
+    next_state = (t+1, Ta, Tt)
+    
+    # Get observation distribution
+    obs_dist = POMDPs.observation(pomdp, a, next_state)
+    
+    # If it's a deterministic distribution, convert to histogram format
+    if obs_dist isa Deterministic
+        o = obs_dist.val
+        obs_time = o[3]
+        x_values = collect(min_end_time:max_end_time)
+        y_values = zeros(length(x_values))
+        idx = findfirst(x -> x == obs_time, x_values)
+        if idx !== nothing
+            y_values[idx] = 1.0
+        end
+    else
+        # For SparseCat distribution
+        obs_list = obs_dist.vals
+        probs = obs_dist.probs
+        
+        # Extract only the To (observed time) component
+        obs_times = [o[3] for o in obs_list]
+        
+        # Create mapping of observation time to probability
+        time_probs = Dict{Int, Float64}()
+        for (obs, prob) in zip(obs_times, probs)
+            time_probs[obs] = get(time_probs, obs, 0.0) + prob
+        end
+        
+        # Create vectors for plotting
+        x_values = collect(min_end_time:max_end_time)
+        y_values = [get(time_probs, x, 0.0) for x in x_values]
+    end
+    
+    p = bar(
+        x_values,
+        y_values,
+        title="$(title_prefix)Observation Probability at t=$(t)",
+        xlabel="Possible Observed End Time",
+        ylabel="Probability",
+        legend=false,
+        fillalpha=0.7,
+        color=:purple,
+        size=(800, 400)
+    )
+    
+    # Add vertical line for true end time
+    vline!([true_end_time], label="True End Time", linewidth=2, color=:red, linestyle=:dash)
+    
+    # Add expected observation (mean of distribution)
+    expected_obs = sum(x_values .* y_values)
+    if !isnan(expected_obs) && !isapprox(expected_obs, 0.0)
+        vline!([expected_obs], label="Expected Observation", linewidth=2, 
+              color=:green, linestyle=:dot)
+    end
+    
+    return p
+end
+
+function create_debug_plots(pomdp, run_details, min_end_time, max_end_time, output_dir;
+                           belief_history=nothing, plot_beliefs=true, plot_observations=true)
+    # Make sure plots directory exists
+    plots_dir = joinpath(output_dir, "debug_plots")
+    if !isdir(plots_dir)
+        mkpath(plots_dir)
+    end
+    
+    # Extract true end time from the first step
+    true_end_time = run_details[1]["Tt"]
+    
+    # Plot announce time evolution
+    p_announce = plot_announce_time_evolution(
+        run_details, 
+        true_end_time, 
+        min_end_time, 
+        max_end_time
+    )
+    savefig(p_announce, joinpath(plots_dir, "announce_time_evolution.png"))
+    
+    # Plot reward evolution
+    p_reward = plot_reward_evolution(run_details)
+    savefig(p_reward, joinpath(plots_dir, "reward_evolution.png"))
+    
+    # Plot belief distributions if available
+    if belief_history !== nothing && plot_beliefs
+        belief_plots_dir = joinpath(plots_dir, "beliefs")
+        if !isdir(belief_plots_dir)
+            mkpath(belief_plots_dir)
+        end
+        
+        for (i, belief) in enumerate(belief_history)
+            timestep = i - 1  # Timestep starts at 0
+            p_belief = plot_belief_distribution(
+                belief, 
+                true_end_time, 
+                min_end_time, 
+                max_end_time, 
+                timestep
+            )
+            savefig(p_belief, joinpath(belief_plots_dir, "belief_t$(lpad(timestep, 2, '0')).png"))
+        end
+    end
+    
+    # Plot observation probabilities if requested
+    if plot_observations
+        obs_plots_dir = joinpath(plots_dir, "observations")
+        if !isdir(obs_plots_dir)
+            mkpath(obs_plots_dir)
+        end
+        
+        for (i, step) in enumerate(run_details)
+            # Skip the last step
+            if i == length(run_details)
+                continue
+            end
+            
+            timestep = step["timestep"]
+            Ta = step["Ta_prev"]
+            Tt = step["Tt"]
+            
+            # Create state tuple
+            state = (timestep, Ta, Tt)
+            
+            p_obs = plot_observation_probability(
+                pomdp,
+                state,
+                true_end_time,
+                min_end_time,
+                max_end_time
+            )
+            
+            if p_obs !== nothing
+                savefig(p_obs, joinpath(obs_plots_dir, "obs_prob_t$(lpad(timestep, 2, '0')).png"))
+            end
+        end
+    end
+    
+    # Return the main plots
+    return p_announce, p_reward
+end

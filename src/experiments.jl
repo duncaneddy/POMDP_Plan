@@ -8,8 +8,16 @@ function run_experiment(
     fixed_true_end_time::Union{Int, Nothing}=nothing,
     initial_announce::Union{Int, Nothing}=0,
     discount_factor::Float64=0.99,
+    seed::Union{Int, Nothing}=nothing,
     verbose::Bool=false
 )
+    # Set random seed if provided or generate one
+    if seed === nothing
+        seed = rand(1:10000)
+    end
+    println("Using random seed: $seed")
+    Random.seed!(seed)
+
     # Create a unique directory for this experiment
     timestamp = Dates.format(Dates.now(), "yyyy-mm-dd_HH-MM-SS")
     experiment_dir = joinpath(output_dir, "experiment_$(timestamp)")
@@ -26,6 +34,7 @@ function run_experiment(
         "fixed_true_end_time" => fixed_true_end_time,
         "initial_announce" => initial_announce,
         "discount_factor" => discount_factor,
+        "seed" => seed,
         "timestamp" => timestamp
     )
     
@@ -57,7 +66,9 @@ function run_experiment(
         end
         
         # Set seed for reproducibility across policies
-        Random.seed!(sim_num)
+        # Use a different seed for each simulation, but derived from the base seed
+        sim_seed = seed + sim_num
+        Random.seed!(sim_seed)
         
         # Generate true end time for this simulation
         if fixed_true_end_time !== nothing
@@ -73,9 +84,8 @@ function run_experiment(
             initial_Ta = min_end_time
         end
         
-
         if verbose
-            println("Simulation $sim_num")
+            println("Simulation $sim_num (seed: $sim_seed)")
         end
         
         # Run simulation for each policy
@@ -85,7 +95,7 @@ function run_experiment(
             end
             
             # Reset RNG to same state for each policy
-            Random.seed!(sim_num)
+            Random.seed!(sim_seed)
             
             # Run simulation
             sim_trajectory = []

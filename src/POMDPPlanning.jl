@@ -258,6 +258,7 @@ function main()
             args["output-dir"],
             fixed_true_end_time=args["true-end-time"],
             initial_announce=args["initial-announce"],
+            seed=args["seed"],  # Add this line
             verbose=args["verbose"]
         )
 
@@ -281,6 +282,7 @@ function main()
             fixed_true_end_time=args["true-end-time"],
             initial_announce=args["initial-announce"],
             discount_factor=args["discount"],
+            seed=args["seed"],  # Add this line
             verbose=args["verbose"]
         )
         
