@@ -5,6 +5,67 @@
     POMCPOW
     QMDP
     SARSOP
+    MOSTLIKELY
+    OBSERVEDTIME
+end
+
+struct MostLikelyPolicy <: Policy end
+
+function POMDPs.action(policy::MostLikelyPolicy, belief, state=nothing)
+    # Extract the most likely state from the belief
+    states = belief.state_list
+    probs = belief.b
+    max_prob_index = argmax(probs)
+    # s is the most likely state
+    s = states[max_prob_index]
+
+    # Unpack state variables
+    t, Ta, To = s
+
+    # To is the most likely true end time
+    observed_time = To
+
+    # Determine the action
+    if observed_time != Ta
+        return AnnounceAction(observed_time)
+    else
+        return AnnounceAction(Ta)
+    end
+end
+
+struct ObservedTimePolicy <: Policy
+    observation_history::Vector{Int}
+
+    ObservedTimePolicy() = new(Int[])
+end
+
+function POMDPs.update(policy::ObservedTimePolicy, observation)
+    push!(policy.observation_history, observation)
+    return policy
+end
+
+function POMDPs.action(policy::ObservedTimePolicy, belief, state=nothing)
+    # NOTE: THIS DOESNT WORK YET, IT IS THE SAME AS THE MOST LIKELY POLICY
+    # BECAUSE THE OBSERVATION HISTORY IS NOT UPDATED
+    if isempty(policy.observation_history)
+        # If no observations have been made, return a default action
+        # Extract the most likely state from the belief
+        states = belief.state_list
+            probs = belief.b
+            max_prob_index = argmax(probs)
+            # s is the most likely state
+            s = states[max_prob_index]
+
+            # Unpack state variables
+            t, Ta, To = s
+
+            # To is the most likely true end time
+            observed_time = To
+
+            return AnnounceAction(observed_time)
+    else
+        return AnnounceAction(policy.observation_history[end])
+    end
 end
 
 
@@ -29,11 +90,15 @@ function get_policy(pomdp, solver_type, output_dir;
     elseif uppercase(solver_type) == "SARSOP"
         println("Computing policy using SARSOP solver")
         elapsed_time = @elapsed policy = solve(SARSOPSolver(), pomdp)
-    # elseif solver_type == "mostlikely"
-    #     elapsed_time = @elapsed policy = MostLikelyPolicy()
+    elseif solver_type == "MOSTLIKELY"
+        elapsed_time = @elapsed policy = MostLikelyPolicy()
+    elseif solver_type == "OBSERVEDTIME"
+        elapsed_time = @elapsed policy = ObservedTimePolicy()
     else
-        println("Invalid solver type: $solver_type. Using random policy by default.")
-        elapsed_time = @elapsed policy = RandomPolicy(pomdp)
+        println("Error: Invalid solver type: $solver_type.")
+        exit(1)
+        # println("Invalid solver type: $solver_type. Using random policy by default.")
+        # elapsed_time = @elapsed policy = RandomPolicy(pomdp)
     end
     
     # Create directory if it doesn't exist

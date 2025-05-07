@@ -292,7 +292,7 @@ function plot_error_evolution(run_details; title_prefix="")
         belief_errors,
         label="Belief Error",
         color=:blue,
-        marker=:triangle,
+        marker=:diamond,
         markersize=4,
         linewidth=2
     )

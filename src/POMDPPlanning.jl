@@ -169,8 +169,6 @@ function main()
 
         solvers = split(solvers_str, ",")
 
-        
-
         for solver in solvers
             
             if args["verbose"]
@@ -178,7 +176,7 @@ function main()
             end
             
             # Solve the POMDP using the specified solver
-            policy = get_policy(
+            get_policy(
                 pomdp,
                 solver,
                 args["output-dir"],
@@ -188,68 +186,98 @@ function main()
 
 
     elseif args["command"] == "evaluate"
-        if args["policy-file"] === nothing
-            println("Error: policy file is required for evaluation")
-            return 1
-        end
+
+        # Create planning POMDP
+        pomdp = define_pomdp(
+            args["min-end-time"],
+            args["max-end-time"],
+            args["discount"],
+            verbose=args["verbose"],
+            initial_announce=args["initial-announce"],
+            fixed_true_end_time=args["true-end-time"]
+        )
         
-        # Load policy and metadata
-        if !isfile(args["policy-file"])
-            println("Error: policy file not found: $(args["policy-file"])")
-            return 1
-        end
-        
-        loaded_data = load(args["policy-file"])
-        policy = loaded_data["policy"]
-        metadata = loaded_data["metadata"]
-        
-        if args["debug"]
-            println("Loaded policy from $(args["policy-file"])")
-            println("Metadata: $metadata")
-        end
-        
-        # Create POMDP with parameters from metadata
-        min_end_time = metadata["min_end_time"]
-        max_end_time = metadata["max_end_time"]
-        discount_factor = metadata["discount_factor"]
-        
-        # Override with command line arguments if provided
-        if args["min-end-time"] !== nothing
-            min_end_time = args["min-end-time"]
-        end
-        if args["max-end-time"] !== nothing
-            max_end_time = args["max-end-time"]
-        end
-        if args["discount"] !== nothing
-            discount_factor = args["discount"]
-        end
-        
-        # Validate parameter compatibility
-        if min_end_time != metadata["min_end_time"] || max_end_time != metadata["max_end_time"]
-            println("Warning: Evaluation parameters don't match policy metadata")
-            println("  Policy: min_end_time=$(metadata["min_end_time"]), max_end_time=$(metadata["max_end_time"])")
-            println("  Evaluation: min_end_time=$min_end_time, max_end_time=$max_end_time")
+        # Load policy file or create one
+        if args["policy-file"] == nothing
+
+            if args["solvers"] == nothing
+                println("Error: no solvers specified for policy generation")
+                return 1
+            end
+
+            solvers = split(solvers_str, ",")
+
+            if length(solvers) != 1
+                println("Error: only one solver can be specified for policy generation")
+                return 1
+            end
+            solver = solvers[1]
+
+            if solver == "all"
+                println("Error: 'all' is not a valid solver for policy generation")
+                return 1
+            end
+
+
+            if args["verbose"]
+                println("Running solver: $solver")
+            end
             
-            confirm_continue = false
-            while !confirm_continue
-                print("Continue anyway? (y/n): ")
-                response = lowercase(readline())
-                if response in ["y", "yes"]
-                    confirm_continue = true
-                elseif response in ["n", "no"]
-                    println("Evaluation cancelled")
-                    return 0
+            # Solve the POMDP using the specified solver
+            policy_output = get_policy(
+                pomdp,
+                solver,
+                args["output-dir"],
+                verbose=args["verbose"]
+            )
+            
+            policy = policy_output["policy"]
+        else
+        
+            loaded_data = load(args["policy-file"])
+            policy = loaded_data["policy"]
+            metadata = loaded_data["metadata"]
+            
+            if args["debug"]
+                println("Loaded policy from $(args["policy-file"])")
+                println("Metadata: $metadata")
+            end
+            
+            # Create POMDP with parameters from metadata
+            min_end_time = metadata["min_end_time"]
+            max_end_time = metadata["max_end_time"]
+            discount_factor = metadata["discount_factor"]
+            
+            # Override with command line arguments if provided
+            if args["min-end-time"] !== nothing
+                min_end_time = args["min-end-time"]
+            end
+            if args["max-end-time"] !== nothing
+                max_end_time = args["max-end-time"]
+            end
+            if args["discount"] !== nothing
+                discount_factor = args["discount"]
+            end
+            
+            # Validate parameter compatibility
+            if min_end_time != metadata["min_end_time"] || max_end_time != metadata["max_end_time"]
+                println("Warning: Evaluation parameters don't match policy metadata")
+                println("  Policy: min_end_time=$(metadata["min_end_time"]), max_end_time=$(metadata["max_end_time"])")
+                println("  Evaluation: min_end_time=$min_end_time, max_end_time=$max_end_time")
+                
+                confirm_continue = false
+                while !confirm_continue
+                    print("Continue anyway? (y/n): ")
+                    response = lowercase(readline())
+                    if response in ["y", "yes"]
+                        confirm_continue = true
+                    elseif response in ["n", "no"]
+                        println("Evaluation cancelled")
+                        return 0
+                    end
                 end
             end
         end
-        
-        # Create POMDP for evaluation
-        pomdp = define_pomdp(
-            min_end_time,
-            max_end_time,
-            discount_factor,
-            verbose=args["verbose"]
-        )
         
         # Run evaluation
         evaluate_policy(

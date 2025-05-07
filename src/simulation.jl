@@ -239,7 +239,8 @@ function evaluate_policy(pomdp, policy, num_simulations, output_dir;
         "fixed_true_end_time" => fixed_true_end_time,
         "initial_announce" => initial_announce,
         "seed" => seed,
-        "timestamp" => timestamp
+        "timestamp" => timestamp,
+        "solver" => typeof(policy),
     )
 
     params_path = joinpath(eval_dir, "evaluation_params.json")
