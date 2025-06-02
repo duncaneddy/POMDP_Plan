@@ -55,7 +55,7 @@ end
 
 # Add these functions to src/analysis.jl
 
-function plot_belief_distribution(belief, true_end_time, min_end_time, max_end_time, timestep; title_prefix="")
+function plot_belief_distribution(belief, true_end_time, min_end_time, max_end_time, timestep, announced_time; title_prefix="")
     states, probs = extract_belief_states_and_probs(belief)
     
     # Extract only the Tt (true end time) component and its probability
@@ -87,7 +87,7 @@ function plot_belief_distribution(belief, true_end_time, min_end_time, max_end_t
     
     # Add vertical line for true end time
     vline!([true_end_time], label="True End Time", linewidth=2, color=:red, linestyle=:dash)
-    
+    vline!([announced_time], label="Announced End Time", linewidth=2, color=:black, linestyle=:dash)
     # Add the highest belief state as text annotation
     highest_end_time = x_values[argmax(y_values)]
     # annotate!(highest_end_time, maximum(y_values) * 1.05, 
@@ -310,6 +310,8 @@ function create_debug_plots(pomdp, run_details, min_end_time, max_end_time, outp
     
     # Extract true end time from the first step
     true_end_time = run_details[1]["Tt"]
+
+    announced_times = [step["action"] for step in run_details]
     
     # Plot announce time evolution
     p_announce = plot_announce_time_evolution(
@@ -337,12 +339,14 @@ function create_debug_plots(pomdp, run_details, min_end_time, max_end_time, outp
         
         for (i, belief) in enumerate(belief_history)
             timestep = i - 1  # Timestep starts at 0
+            
             p_belief = plot_belief_distribution(
                 belief, 
                 true_end_time, 
                 min_end_time, 
                 max_end_time, 
-                timestep
+                timestep,
+                announced_times[i]
             )
             savefig(p_belief, joinpath(belief_plots_dir, "belief_t$(lpad(timestep, 2, '0')).png"))
         end
