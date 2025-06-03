@@ -17,6 +17,7 @@ using QMDP
 using FIB
 using PointBasedValueIteration
 using NativeSARSOP
+using BasicPOMCP
 
 # Utilities
 using Distributions
@@ -135,7 +136,7 @@ function main()
     # Parse solvers list
     solvers_str = args["solvers"]
     if solvers_str == "all"
-        solvers = string.(instances(SolverType))
+        solvers = string.(collect(instances(SolverType)))
     else
         solvers = string.(split(solvers_str, ","))
     end

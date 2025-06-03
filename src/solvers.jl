@@ -5,6 +5,7 @@
     POMCPOW
     QMDP
     SARSOP
+    POMCP
     MOSTLIKELY
     OBSERVEDTIME
 end
@@ -90,6 +91,9 @@ function get_policy(pomdp, solver_type, output_dir;
     elseif uppercase(solver_type) == "SARSOP"
         println("Computing policy using SARSOP solver")
         elapsed_time = @elapsed policy = solve(SARSOPSolver(), pomdp)
+    elseif uppercase(solver_type) == "POMCP"
+        println("Computing policy using POMCP solver")
+        elapsed_time = @elapsed policy = solve(POMCPSolver(), pomdp)
     elseif solver_type == "MOSTLIKELY"
         elapsed_time = @elapsed policy = MostLikelyPolicy()
     elseif solver_type == "OBSERVEDTIME"

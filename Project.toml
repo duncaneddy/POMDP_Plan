@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [deps]
 ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
+BasicPOMCP = "d721219e-3fc6-5570-a8ef-e5402f47c49e"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 FIB = "13b007ba-0ca8-5af2-9adf-bc6a6301e25a"
@@ -27,6 +28,7 @@ StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
 
 [compat]
 ArgParse = "1.2.0"
+BasicPOMCP = "0.3.12"
 Dates = "1.11.0"
 Distributions = "0.25.119"
 FIB = "0.4.5"
