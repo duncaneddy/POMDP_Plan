@@ -374,10 +374,7 @@ function generate_average_performance_plots(all_results, output_dir)
         for sim in simulations
             actions = [sim[i]["action"] for i in eachindex(sim)]
             true_end_times = [sim[i]["true_end_time"] for i in eachindex(sim)]
-            println(actions)
-            println(true_end_times)
             error = abs.(actions-true_end_times)
-            println(error)
             push!(avg_error,mean(error))
             push!(max_error,maximum(error))
         end
