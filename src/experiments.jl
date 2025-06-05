@@ -364,10 +364,27 @@ function generate_average_performance_plots(all_results, output_dir)
     
     # Compute average final rewards for each solver
     avg_rewards = Dict()
+    mean_avg_error = Dict()
+    mean_max_error = Dict()
     for solver in solver_types
         simulations = all_results[solver]
+        avg_error = []
+        max_error = []
+        #print(simulations)
+        for sim in simulations
+            actions = [sim[i]["action"] for i in eachindex(sim)]
+            true_end_times = [sim[i]["true_end_time"] for i in eachindex(sim)]
+            println(actions)
+            println(true_end_times)
+            error = abs.(actions-true_end_times)
+            println(error)
+            push!(avg_error,mean(error))
+            push!(max_error,maximum(error))
+        end
         final_rewards = [sim[end]["accumulated_reward"] for sim in simulations]
         avg_rewards[solver] = mean(final_rewards)
+        mean_avg_error[solver] = mean(avg_error)
+        mean_max_error[solver] = mean(max_error)        
     end
     
     # Sort solvers by average reward
@@ -395,5 +412,55 @@ function generate_average_performance_plots(all_results, output_dir)
     
     savefig(p_avg, joinpath(plots_dir, "average_final_reward.png"))
     
-    return p_avg
+    # Sort solvers by average error
+    sorted_solvers = sort(collect(keys(mean_avg_error)), by=s -> mean_avg_error[s], rev=true)
+    
+    # Plot average errors
+    e_avg = bar(
+        sorted_solvers,
+        [mean_avg_error[s] for s in sorted_solvers],
+        title = "Average Mean Error by Solver",
+        xlabel = "Solver",
+        ylabel = "Average Mean Error",
+        legend = false,
+        size = (800, 600),
+        grid = true,
+        rotation = 45,  # Rotate x-axis labels
+        bottom_margin = 10Plots.mm  # Add margin for rotated labels
+    )
+    
+    # Add value labels above bars
+    for (i, solver) in enumerate(sorted_solvers)
+        annotate!(i, mean_avg_error[solver] + maximum(values(mean_avg_error))*0.03, 
+                 text(round(mean_avg_error[solver], digits=1), 8, :center))
+    end
+    
+    savefig(e_avg, joinpath(plots_dir, "average_mean_error.png"))
+
+    # Sort solvers by average max error
+    sorted_solvers = sort(collect(keys(mean_max_error)), by=s -> mean_max_error[s], rev=true)
+    
+    # Plot average max errors
+    m_avg = bar(
+        sorted_solvers,
+        [mean_max_error[s] for s in sorted_solvers],
+        title = "Average Max Error by Solver",
+        xlabel = "Solver",
+        ylabel = "Average Max Error",
+        legend = false,
+        size = (800, 600),
+        grid = true,
+        rotation = 45,  # Rotate x-axis labels
+        bottom_margin = 10Plots.mm  # Add margin for rotated labels
+    )
+    
+    # Add value labels above bars
+    for (i, solver) in enumerate(sorted_solvers)
+        annotate!(i, mean_max_error[solver] + maximum(values(mean_max_error))*0.03, 
+                 text(round(mean_max_error[solver], digits=1), 8, :center))
+    end
+    
+    savefig(m_avg, joinpath(plots_dir, "average_max_error.png"))
+
+    return p_avg, e_avg, m_avg
 end
