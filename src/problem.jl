@@ -102,7 +102,7 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
             # println("a.announced_time", a.announced_time)
             earlier = -30
             later = -45
-            incentive = 10
+            incentive = 1
             r = 0
 
             # If announcing an impossible time
@@ -124,7 +124,7 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
 
             if a.announced_time == Ta # not updating your announcement
                 r = -1 * abs(Ta - Tt) # penalize for the difference between announced and true end time
-                # # Reward below was creating high rewards compared to announcing a new time, and the policy chooses to not change its announcement. I changed the reward to match the cases announcing a new time minus some constant
+                # Reward below was creating high rewards compared to announcing a new time, and the policy chooses to not change its announcement. I changed the reward to match the cases announcing a new time minus some constant
                 # diff_announced = abs(a.announced_time - Tt) # difference between announced and true end time (probably near 1 or 2)
                 # time_to_end = Tt - t # Will never be 0 because we check for Tt == t above
                 # if a.announced_time < Tt
@@ -136,22 +136,19 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
             end
             
             if a.announced_time != Ta  # announcing a new time
-                diff_announced = abs(Ta - a.announced_time) # difference between announced and true end time (probably near 1 or 2)
-                # # Line above was the definition before, but Ta is the previously announced time, not the true end time.
-                # #diff_announced = abs(a.announced_time - Tt) # difference between announced and true end time (probably near 1 or 2)
+                diff_announced = abs(Ta - a.announced_time) # difference between announced and true end time (probably near 1 or 2)                
                 time_to_end = Tt - t # Will never be 0 because we check for Tt == t above
-                if Ta < Tt
+                # if Ta < Tt
+                #     r += earlier * (1 / time_to_end) * diff_announced 
+                # elseif Ta > Tt
+                #     r += later * (1 / time_to_end) * diff_announced
+                # end
+                # Logic above was the definition before but Ta is the previously announced time, not the current action 
+                if a.announced_time <= Tt
                     r += earlier * (1 / time_to_end) * diff_announced 
-                elseif Ta > Tt
+                elseif a.announced_time > Tt
                     r += later * (1 / time_to_end) * diff_announced
                 end
-                # # Logic above was the definition before but Ta is the previously announced time, not the current action 
-                # # if a.announced_time < Tt
-                # #     r += earlier * (1 / time_to_end) * diff_announced 
-                # # elseif a.announced_time > Tt
-                # #     r += later * (1 / time_to_end) * diff_announced
-                # # end
-                #r = -1 * abs(Ta - Tt)
             end
             return r
         end,
