@@ -300,6 +300,132 @@ function plot_error_evolution(run_details; title_prefix="")
     return p
 end
 
+function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, max_end_time; title_prefix="")
+    """
+    Creates a 2D heatmap showing the evolution of belief probabilities over time.
+    
+    Args:
+        belief_history: Vector of belief states from simulation
+        true_end_time: The actual true end time for this simulation
+        min_end_time: Minimum possible end time in the problem
+        max_end_time: Maximum possible end time in the problem
+        title_prefix: Optional prefix for the plot title
+    
+    Returns:
+        Plots.Plot object containing the heatmap
+    """
+    
+    if belief_history === nothing || isempty(belief_history)
+        @warn "No belief history available for 2D belief evolution plot"
+        return nothing
+    end
+    
+    num_timesteps = length(belief_history)
+    possible_end_times = collect(min_end_time:max_end_time)
+    num_end_times = length(possible_end_times)
+    
+    # Initialize probability matrix: rows = end times, columns = timesteps
+    prob_matrix = zeros(Float64, num_end_times, num_timesteps)
+    
+    # Fill the probability matrix
+    for (timestep_idx, belief) in enumerate(belief_history)
+        states, probs = extract_belief_states_and_probs(belief)
+        
+        # Aggregate probabilities by true end time (Tt)
+        end_time_probs = Dict{Int, Float64}()
+        for (state, prob) in zip(states, probs)
+            Tt = state[3]  # Extract true end time from state tuple (t, Ta, Tt)
+            end_time_probs[Tt] = get(end_time_probs, Tt, 0.0) + prob
+        end
+        
+        # Fill the matrix column for this timestep
+        for (end_time_idx, end_time) in enumerate(possible_end_times)
+            prob_matrix[end_time_idx, timestep_idx] = get(end_time_probs, end_time, 0.0)
+        end
+    end
+    
+    # Create timestep labels (starting from 0)
+    timestep_labels = collect(0:(num_timesteps-1))
+    
+    # Create the heatmap
+    p = heatmap(
+        timestep_labels,
+        possible_end_times,
+        prob_matrix,
+        title = "$(title_prefix)2D Belief Evolution Over Time",
+        xlabel = "Simulation Time (t)",
+        ylabel = "True End Time (Tt)",
+        color = :viridis,
+        aspect_ratio = :auto,
+        size = (800, 600),
+        colorbar_title = "Probability",
+        legend = :outertopright  # Place legend outside the plot on the top right
+    )
+    
+    # Add a horizontal line for the actual true end time
+    hline!([true_end_time], 
+           label = "True End Time", 
+           color = :red, 
+           linewidth = 3, 
+           linestyle = :dash,
+           legend = :topright)
+
+    # Ensure proper tick spacing for readability
+    plot!(
+        xticks = (0:2:maximum(timestep_labels), 0:2:maximum(timestep_labels)),
+        yticks = (min_end_time:2:max_end_time, min_end_time:2:max_end_time)
+    )
+    
+    return p
+end
+
+function plot_2d_belief_evolution_with_actions(belief_history, run_details, true_end_time, min_end_time, max_end_time; title_prefix="")
+    """
+    Enhanced version that also overlays the announced times as a trajectory.
+    """
+    
+    # Create the base 2D belief evolution plot
+    p = plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, max_end_time, title_prefix=title_prefix)
+    
+    if p === nothing
+        return nothing
+    end
+    
+    # Extract timesteps and announced times from run details
+    timesteps = [step["timestep"] for step in run_details]
+    announced_times = [step["action"] for step in run_details]
+    
+    # Overlay the announced time trajectory
+    plot!(p,
+        timesteps,
+        announced_times,
+        label = "Announced Time",
+        color = :white,
+        linewidth = 3,
+        marker = :circle,
+        markersize = 4,
+        markerstrokecolor = :black,
+        markerstrokewidth = 1
+    )
+    
+    # Also overlay observations if available
+    if haskey(run_details[1], "To")
+        observations = [step["To"] for step in run_details]
+        scatter!(p,
+            timesteps,
+            observations,
+            label = "Observations",
+            color = :yellow,
+            marker = :diamond,
+            markersize = 5,
+            markerstrokecolor = :black,
+            markerstrokewidth = 1
+        )
+    end
+    
+    return p
+end
+
 function create_debug_plots(pomdp, run_details, min_end_time, max_end_time, output_dir;
                            belief_history=nothing, plot_beliefs=true, plot_observations=true)
     # Make sure plots directory exists
@@ -385,6 +511,28 @@ function create_debug_plots(pomdp, run_details, min_end_time, max_end_time, outp
                 savefig(p_obs, joinpath(obs_plots_dir, "obs_prob_t$(lpad(timestep, 2, '0')).png"))
             end
         end
+    end
+
+    # Plot 2D belief evolution
+    p_belief_2d = plot_2d_belief_evolution(
+        belief_history, 
+        true_end_time, 
+        min_end_time, 
+        max_end_time
+    )
+    if p_belief_2d !== nothing
+        savefig(p_belief_2d, joinpath(plots_dir, "belief_evolution_2d.png"))
+    end
+    
+    p_belief_2d_enhanced = plot_2d_belief_evolution_with_actions(
+        belief_history,
+        run_details,
+        true_end_time, 
+        min_end_time, 
+        max_end_time
+    )
+    if p_belief_2d_enhanced !== nothing
+        savefig(p_belief_2d_enhanced, joinpath(plots_dir, "belief_evolution_2d_with_actions.png"))
     end
     
     # Return the main plots
