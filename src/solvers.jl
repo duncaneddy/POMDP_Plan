@@ -94,9 +94,9 @@ function get_policy(pomdp, solver_type, output_dir;
     elseif uppercase(solver_type) == "POMCP"
         println("Computing policy using POMCP solver")
         elapsed_time = @elapsed policy = solve(POMCPSolver(), pomdp)
-    elseif solver_type == "MOSTLIKELY"
+    elseif uppercase(solver_type) == "MOSTLIKELY"
         elapsed_time = @elapsed policy = MostLikelyPolicy()
-    elseif solver_type == "OBSERVEDTIME"
+    elseif uppercase(solver_type) == "OBSERVEDTIME"
         elapsed_time = @elapsed policy = ObservedTimePolicy()
     else
         println("Error: Invalid solver type: $solver_type.")
