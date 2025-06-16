@@ -16,7 +16,8 @@ using POMCPOW
 using QMDP
 using FIB
 using PointBasedValueIteration
-using NativeSARSOP
+import NativeSARSOP
+import SARSOP
 using BasicPOMCP
 
 # Utilities
@@ -289,7 +290,8 @@ function main()
             fixed_true_end_time=args["true-end-time"],
             initial_announce=args["initial-announce"],
             seed=args["seed"],  # Add this line
-            verbose=args["verbose"]
+            verbose=args["verbose"],
+            solver=args["solvers"]  # Pass the solver type for metadata
         )
 
     elseif args["command"] == "experiments"

@@ -19,3 +19,5 @@ old/*
 # Ignore results
 results/*
 output/*
+model.pomdpx
+policy.out

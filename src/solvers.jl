@@ -4,7 +4,8 @@
     PBVI
     POMCPOW
     QMDP
-    SARSOP
+    NATIVE_SARSOP
+    BASE_SARSOP
     POMCP
     MOSTLIKELY
     OBSERVEDTIME
@@ -88,9 +89,12 @@ function get_policy(pomdp, solver_type, output_dir;
     elseif uppercase(solver_type) == "QMDP"
         println("Computing policy using QMDP solver")
         elapsed_time = @elapsed policy = solve(QMDPSolver(), pomdp)
-    elseif uppercase(solver_type) == "SARSOP"
+    elseif uppercase(solver_type) == "NATIVE_SARSOP"
+        println("Computing policy using NativeSARSOP solver")
+        elapsed_time = @elapsed policy = solve(NativeSARSOP.SARSOPSolver(), pomdp)
+    elseif uppercase(solver_type) == "BASE_SARSOP"
         println("Computing policy using SARSOP solver")
-        elapsed_time = @elapsed policy = solve(SARSOPSolver(), pomdp)
+        elapsed_time = @elapsed policy = solve(SARSOP.SARSOPSolver(), pomdp)
     elseif uppercase(solver_type) == "POMCP"
         println("Computing policy using POMCP solver")
         elapsed_time = @elapsed policy = solve(POMCPSolver(), pomdp)

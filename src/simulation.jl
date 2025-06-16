@@ -206,7 +206,8 @@ function evaluate_policy(pomdp, policy, num_simulations, output_dir;
                         fixed_true_end_time=nothing,
                         initial_announce=nothing,
                         seed=nothing,
-                        verbose=false)
+                        verbose=false,
+                        solver="UnknownSolver")
 
     println("Evaluating policy for $num_simulations simulation(s)")
 
@@ -240,7 +241,7 @@ function evaluate_policy(pomdp, policy, num_simulations, output_dir;
         "initial_announce" => initial_announce,
         "seed" => seed,
         "timestamp" => timestamp,
-        "solver" => typeof(policy),
+        "solver" => solver,
     )
 
     params_path = joinpath(eval_dir, "evaluation_params.json")
