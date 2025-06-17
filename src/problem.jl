@@ -49,11 +49,27 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
             # We have just transitioned from (t - 1, Ta_prev, Tt) to (t, Ta, Tt)
             t, Ta, Tt = sp
 
-            return Deterministic((t, Ta, Tt))
+            # Debug Step 1: If we have deterministic observation that provide the true end time, does the action announce
+            # the true end time.
+            # Answer: Yes, immediately after the first observation the announce time will be the true end time and stay there
+            # return Deterministic((t, Ta, Tt))
 
-            # Deterministic set of observations of the true one and one +/- the true end time
+            # Debug Step 2: We try the same thing but with just a single SparseCat observation
+            # This should be the same as the deterministic observation.
+            # Answer: Yes, this works as expected and gives the same results as above
+            # return SparseCat([(t, Ta, Tt)], [1.0])
+
+            # Debug Step 3: Now we try with a simple, but heavily weighted observation function
+            # This funciton allows for observation of the true end time and potentially other times 
+            # one timestep before or after the true end time. The true end time is heavily weighted
+            # as the most likely observation.
+            # 
+            # Result: 
+
             obs_list = [(t, Ta, Tt)]
 
+            # Account for the fact that the true end time might be at the minimum or maximum end time
+            # And so we don't add observations that are out of bounds
             if Tt > min_end_time
                 obs_list = push!(obs_list, (t, Ta, Tt - 1))
             end
@@ -67,90 +83,26 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
                 probs = [1.0]
             elseif length(obs_list) == 2
                 # If we have two observations, we can assign equal probabilities
-                probs = [0.9, 0.1]
+                probs = [0.95, 0.05]
             else
                 # If we have three observations, assign equal probabilities
-                probs = [0.8, 0.1, 0.1]
+                probs = [0.9, 0.05, 0.05]
             end
 
             return SparseCat(obs_list, probs)
 
-            # # If the project is done or we are at the timestep before the maximum project completion time
-            # # just return Tt deterministically
-            # if t >= Tt || t + 1 == max_end_time
-            #     return Deterministic((t, Ta, Tt))
-            # end
-
-            # # Otherwise, we have the case where the project is not done yet
-            # # The minimum completion time we can observe the maximium of 
-            # # the current time plus 1 (i.e. we think that after the next transition we will be done)
-            # # and the minimum observed completion time (min_end_time)
-            # min_obs_time = max(t + 1, min_end_time)
-
-            # possible_Tos = collect(min_obs_time:max_end_time)
-
-            # # Calculate parameters of the truncated normal
-            # mu = Tt
-            # std = (Tt - t) / 1.5
-            
-            # if Tt - t <= 0 
-            #     # The task is done, so we should observe the true end time
-            #     return Deterministic((t, Ta, Tt))
-            # end
-
-            # base_dist = Normal(mu, std)
-            # # the truncated normal distribution is defined from t+1 to max_end_time
-            # lower = min_obs_time
-            # upper = max_end_time
-            # cdf_lower = cdf(base_dist, lower)
-            # cdf_upper = cdf(base_dist, upper)
-            # denom = cdf_upper - cdf_lower
-
-            # probs = Float64[]
-            # for To_val in possible_Tos
-            #     p = (pdf(base_dist, To_val) / denom)
-            #     push!(probs, p)
-            # end
-
-            # total_p = sum(probs)
-            # if total_p == 0.0
-            #     return Deterministic((t, Ta, Tt))
-            # end
-            # probs ./= total_p
-
-            # obs_list = [(t, Ta, To_val) for To_val in possible_Tos]
-            
-            # return SparseCat(obs_list, probs)
         end,
 
         reward = function(s, a)
             # Reward for taking action a in state s
             t, Ta, Tt = s
 
-            r = 0
-
-            # If announcing an impossible time
-            # Currently, time t + 1
-            # After time t - 1, we announced Ta
-            # Then, after time t, we announced a.announced_time
-            # Now we must announce a time >= t and, 
-            # if (a.announced_time < t)
-            #     return IMPOSSIBLE_TIME_REWARD
-            # end
-
-            # if Tt == t
-            #     # if Tt = t, we must announce t = Tt
-            #     # if a.announced_time != Tt
-            #     #     return WRONG_END_TIME_REWARD
-            #     # end
-
-            #     return 0
-            # end
-
-            # Just reward the difference between the aanounced time and true time
+            # Dead-simple reward - just penalize for the difference between announced and true end time
             r = -1 * abs(Ta - Tt)
-            # r = -1 * abs(a.announced_time - Tt)
 
+            # This was the original reward logic of penalizing based on the action (announced time) vs the true end time
+            # but it has some strange behavior
+            # r = -1 * abs(a.announced_time - Tt)
 
             return r
         end,
