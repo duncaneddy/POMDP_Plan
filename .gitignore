@@ -21,3 +21,4 @@ results/*
 output/*
 model.pomdpx
 policy.out
+scripts/*.png
