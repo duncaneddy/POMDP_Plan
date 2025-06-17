@@ -26,7 +26,14 @@ function simulate_single(pomdp, policy;
         end
     end
 
-    for (b, s, a, o, r) in stepthrough(pomdp, policy, DiscreteUpdater(pomdp), "b,s,a,o,r"; max_steps=1_000_000)
+    if typeof(policy) == ObservedTimePolicy
+        # Use PreviousObservationUpdater for ObservedTimePolicy
+        updater = PreviousObservationUpdater()
+    else
+        updater = DiscreteUpdater(pomdp)
+    end
+
+    for (b, s, a, o, r) in stepthrough(pomdp, policy, updater, "b,s,a,o,r"; max_steps=1_000_000) # should be able to set max_steps=max_end_time+1
         r_sum += r
         step += 1
         t, Ta, Tt = s

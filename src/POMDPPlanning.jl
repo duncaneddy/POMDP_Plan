@@ -280,6 +280,10 @@ function main()
                 end
             end
         end
+
+        # Print type of policy
+        println("Policy type: $(typeof(policy))")
+        isa(policy, ObservedTimePolicy) && println("This is an ObservedTimePolicy")
         
         # Run evaluation
         evaluate_policy(

@@ -35,39 +35,27 @@ function POMDPs.action(policy::MostLikelyPolicy, belief, state=nothing)
     end
 end
 
-struct ObservedTimePolicy <: Policy
-    observation_history::Vector{Int}
-
-    ObservedTimePolicy() = new(Int[])
-end
-
-function POMDPs.update(policy::ObservedTimePolicy, observation)
-    push!(policy.observation_history, observation)
-    return policy
-end
+struct ObservedTimePolicy <: Policy end
 
 function POMDPs.action(policy::ObservedTimePolicy, belief, state=nothing)
-    # NOTE: THIS DOESNT WORK YET, IT IS THE SAME AS THE MOST LIKELY POLICY
-    # BECAUSE THE OBSERVATION HISTORY IS NOT UPDATED
-    if isempty(policy.observation_history)
-        # If no observations have been made, return a default action
-        # Extract the most likely state from the belief
-        states = belief.state_list
-            probs = belief.b
-            max_prob_index = argmax(probs)
-            # s is the most likely state
-            s = states[max_prob_index]
 
-            # Unpack state variables
-            t, Ta, To = s
+    # If first stand we have a uniform belief over all possible end times - Pick the middle
+    if isa(belief, POMDPTools.POMDPDistributions.SparseCat)
+        end_times = [b[3] for b in belief.vals]  # Assuming the third column is the end time
+        # Extract min and max end times
+        min_end_time = minimum(end_times)  # Assuming the third column is the end time
+        max_end_time = maximum(end_times)  # Assuming the third column is the end time
 
-            # To is the most likely true end time
-            observed_time = To
-
-            return AnnounceAction(observed_time)
+        # Calculate the middle end time
+        middle_end_time = Int(round((min_end_time + max_end_time) / 2))
+        
+        Ta = middle_end_time
     else
-        return AnnounceAction(policy.observation_history[end])
+        # If only one state, should be a tuple and the "observation" is the end time
+        Ta = belief[3]
     end
+    
+    return AnnounceAction(Ta)
 end
 
 
@@ -94,7 +82,7 @@ function get_policy(pomdp, solver_type, output_dir;
         elapsed_time = @elapsed policy = solve(NativeSARSOP.SARSOPSolver(), pomdp)
     elseif uppercase(solver_type) == "BASE_SARSOP"
         println("Computing policy using SARSOP solver")
-        elapsed_time = @elapsed policy = solve(SARSOP.SARSOPSolver(timeout=180), pomdp) # use precision= or timeout= to change exit criterion
+        elapsed_time = @elapsed policy = solve(SARSOP.SARSOPSolver(precision=0.99), pomdp) # use precision= or timeout= to change exit criterion
     elseif uppercase(solver_type) == "POMCP"
         println("Computing policy using POMCP solver")
         elapsed_time = @elapsed policy = solve(POMCPSolver(), pomdp)
