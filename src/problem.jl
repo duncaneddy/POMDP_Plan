@@ -3,6 +3,238 @@ struct AnnounceAction
     announced_time::Int
 end
 
+function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; 
+                              initial_announce::Union{Int, Nothing}=nothing, 
+                              fixed_true_end_time::Union{Int, Nothing}=nothing, 
+                              verbose::Bool = false,
+                              penalty_config::Dict = Dict())
+
+    # Merge default penalties with user-provided config
+    default_penalties = Dict(
+        # Announcing time in the past
+        "impossible_time_reward" => -1000,
+        # Wrong announcement when project completes
+        "wrong_end_time_reward" => -1000,
+        # Reached announced deadline but project not done
+        "missed_deadline_penalty" => -500,
+        # Per time step of announcing later than completion
+        "over_commitment_penalty" => -15,
+        # Per step penalty for error in current estimate
+        "accuracy_penalty_rate" => -0.5,
+        # Flat cost for any change (always applied)
+        "base_change_penalty" => 10.0,
+        # Per step of change magnitude
+        "magnitude_penalty_rate" => 1.0,
+        # High penalty for step-before changes
+        "step_before_penalty" => 75.0,
+        # Small magnitude scaling for step-before
+        "magnitude_independence_factor" => 2.0,
+        # Base urgency penalty coefficient
+        "timing_penalty_rate" => 20.0,
+        # How much magnitude affects timing penalty
+        "magnitude_scaling" => 0.5,
+        # Additional penalty for announcing too early
+        "early_bias_penalty" => 0.0, # 12
+        # Additional penalty for announcing too late
+        "late_bias_penalty" => 0.0 # 8
+    )
+    
+    penalties = merge(default_penalties, penalty_config)
+    
+    if verbose
+        println("Defining Enhanced POMDP with:")
+        println("- Min End Time: $min_end_time")
+        println("- Max End Time: $max_end_time") 
+        println("- Discount Factor: $discount_factor")
+        println("- Penalty Configuration: $penalties")
+    end
+
+    # Define actions: an AnnounceAction for each possible observed time
+    actions = [AnnounceAction(To_val) for To_val in min_end_time:max_end_time]
+
+    pomdp = QuickPOMDP(
+        states = [(t, Ta, Tt) for t in 0:max_end_time,
+                                 Ta in min_end_time:max_end_time,
+                                 Tt in min_end_time:max_end_time],
+        actions = actions,
+        actiontype = AnnounceAction,
+        observations = [(t, Ta, To) for t in 0:max_end_time,
+                                     Ta in min_end_time:max_end_time,
+                                     To in min_end_time:max_end_time],
+
+        discount = discount_factor,
+
+        transition = function(s, a)
+            t, Ta, Tt = s
+            # Move time forward, but not beyond the true end time
+            t = min(t + 1, Tt)
+
+            # Update Ta to the announced_time chosen by the action
+            # Note that the action can be any number in min_end_time:max_end_time 
+            # The paper restricts this to only the previous observed time
+            new_Ta = a.announced_time
+            sp = (t, new_Ta, Tt)
+
+            return Deterministic(sp)
+        end,
+
+        observation = function(a, sp)
+            # We have just transitioned from (t - 1, Ta_prev, Tt) to (t, Ta, Tt)
+            t, Ta, Tt = sp
+
+            # If the project is done or we are at the timestep before the maximum project completion time
+            # just return Tt deterministically
+            if t >= Tt || t + 1 == max_end_time
+                return Deterministic((t, Ta, Tt))
+            end
+
+            # Otherwise, we have the case where the project is not done yet
+            # The minimum completion time we can observe the maximium of 
+            # the current time plus 1 (i.e. we think that after the next transition we will be done)
+            # and the minimum observed completion time (min_end_time)
+            min_obs_time = max(t + 1, min_end_time)
+
+            possible_Tos = collect(min_obs_time:max_end_time)
+
+            # Calculate parameters of the truncated normal
+            mu = Tt
+            std = (Tt - t) / 1.5
+            
+            if Tt - t <= 0 
+                # The task is done, so we should observe the true end time
+                return Deterministic((t, Ta, Tt))
+            end
+
+            base_dist = Normal(mu, std)
+            # the truncated normal distribution is defined from t+1 to max_end_time
+            lower = min_obs_time
+            upper = max_end_time
+            cdf_lower = cdf(base_dist, lower)
+            cdf_upper = cdf(base_dist, upper)
+            denom = cdf_upper - cdf_lower
+
+            probs = Float64[]
+            for To_val in possible_Tos
+                p = (pdf(base_dist, To_val) / denom)
+                push!(probs, p)
+            end
+
+            total_p = sum(probs)
+            if total_p == 0.0
+                return Deterministic((t, Ta, Tt))
+            end
+            probs ./= total_p
+
+            obs_list = [(t, Ta, To_val) for To_val in possible_Tos]
+            
+            return SparseCat(obs_list, probs)
+        end,
+
+        reward = function(s, a)
+            t, Ta, Tt = s
+            new_Ta = a.announced_time
+            
+            # === BASIC BEHAVIOR ===
+            if new_Ta < t
+                return penalties["impossible_time_reward"]
+            end
+            
+            reward = 0.0
+            
+            # === IMMEDIATE CONSEQUENCES ===
+            
+            # 1. Missed deadline: reached announced time but project not done
+            if t == Ta && t < Tt
+                reward += penalties["missed_deadline_penalty"]
+            end
+            
+            # 2. Over-commitment: project finished but announced later
+            if t == Tt && Ta > Tt
+                over_commit_days = Ta - Tt
+                reward += penalties["over_commitment_penalty"] * over_commit_days
+            end
+            
+            # === TERMINAL CONDITIONS ===
+            
+            if t == Tt  # Project actually completes
+                if new_Ta != Tt
+                    return penalties["wrong_end_time_reward"]
+                else
+                    return reward  # Return any immediate consequences
+                end
+            end
+            
+            # === ONGOING PENALTIES ===
+            
+            # 3. Accuracy penalty
+            accuracy_error = abs(new_Ta - Tt)
+            accuracy_penalty = penalties["accuracy_penalty_rate"] * accuracy_error
+            reward += accuracy_penalty
+            
+            # 4. Change penalties
+            if new_Ta != Ta
+                change_magnitude = abs(new_Ta - Ta)
+                time_to_announced = max(1, Ta - t)
+                
+                # Base penalty for any change
+                base_penalty = -penalties["base_change_penalty"]
+                
+                # Magnitude penalty  
+                magnitude_penalty = -penalties["magnitude_penalty_rate"] * change_magnitude
+                
+                # Timing penalty
+                if time_to_announced == 1
+                    # Day before: high penalty mostly independent of magnitude
+                    timing_penalty = -(penalties["step_before_penalty"] + 
+                                    penalties["magnitude_independence_factor"] * change_magnitude)
+                else
+                    # General case: penalty scales with time to deadline/accounced time
+                    urgency_factor = 1.0 / time_to_announced
+                    timing_penalty = -penalties["timing_penalty_rate"] * urgency_factor * 
+                                    (1.0 + penalties["magnitude_scaling"] * change_magnitude)
+                end
+                
+                # Direction bias
+                direction_penalty = 0.0
+                if new_Ta < Tt
+                    direction_penalty += -penalties["early_bias_penalty"] * change_magnitude / time_to_announced
+                elseif new_Ta > Tt
+                    direction_penalty = -penalties["late_bias_penalty"] * change_magnitude / time_to_announced
+                end
+                
+                reward += base_penalty + magnitude_penalty + timing_penalty + direction_penalty
+            end
+            
+            return reward
+        end,
+
+        initialstate = function()
+            if initial_announce == nothing
+                initial_announce = min_end_time
+            end
+
+            if isnothing(fixed_true_end_time)
+                # Randomly select a true end time
+                possible_states = [(0, initial_announce, Tt) for Tt in min_end_time:max_end_time]
+            else
+                # Use the fixed true end time
+                possible_states = [(0, initial_announce, fixed_true_end_time)]
+            end
+            
+            num_states = length(possible_states)
+            probabilities = fill(1.0 / num_states, num_states)
+            return SparseCat(possible_states, probabilities)
+        end,
+        isterminal = function(s)
+            t, Ta, Tt = s
+            return t == Tt + 1
+        end
+    )
+    return pomdp
+end
+
+# Debugging Version with simple observation functions
+
 # function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false)
 #     # Constants for rewards
 #     IMPOSSIBLE_TIME_REWARD = -1000
@@ -137,6 +369,8 @@ end
 #     return pomdp
 # end
 
+# With new observation uncertainty + simple reward function
+
 # function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false)
 #     # Constants for rewards
 #     IMPOSSIBLE_TIME_REWARD = -1000
@@ -250,132 +484,136 @@ end
 #     return pomdp
 # end
 
-function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false)
-    # Constants for rewards
-    IMPOSSIBLE_TIME_REWARD = -1000
-    WRONG_END_TIME_REWARD = -1000
+# Original w/ simplified reward function
 
-    # Define the range of possible end times
-    if verbose
-        println("Defining POMDP with:\n- Min End Time: $min_end_time\n- Max End Time: $max_end_time\n- Discount Factor: $discount_factor")
-    end
+# function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false)
+#     # Constants for rewards
+#     IMPOSSIBLE_TIME_REWARD = -1000
+#     WRONG_END_TIME_REWARD = -1000
+
+#     # Define the range of possible end times
+#     if verbose
+#         println("Defining POMDP with:\n- Min End Time: $min_end_time\n- Max End Time: $max_end_time\n- Discount Factor: $discount_factor")
+#     end
     
 
-    # Define actions: an AnnounceAction for each possible observed time
-    actions = [AnnounceAction(To_val) for To_val in min_end_time:max_end_time]
+#     # Define actions: an AnnounceAction for each possible observed time
+#     actions = [AnnounceAction(To_val) for To_val in min_end_time:max_end_time]
 
-    pomdp = QuickPOMDP(
-        states = [(t, Ta, Tt) for t in 0:max_end_time,
-                                 Ta in min_end_time:max_end_time,
-                                 Tt in min_end_time:max_end_time],
-        actions = actions,
-        actiontype = AnnounceAction,
-        observations = [(t, Ta, To) for t in 0:max_end_time,
-                                     Ta in min_end_time:max_end_time,
-                                     To in min_end_time:max_end_time],
+#     pomdp = QuickPOMDP(
+#         states = [(t, Ta, Tt) for t in 0:max_end_time,
+#                                  Ta in min_end_time:max_end_time,
+#                                  Tt in min_end_time:max_end_time],
+#         actions = actions,
+#         actiontype = AnnounceAction,
+#         observations = [(t, Ta, To) for t in 0:max_end_time,
+#                                      Ta in min_end_time:max_end_time,
+#                                      To in min_end_time:max_end_time],
 
-        discount = discount_factor,
+#         discount = discount_factor,
 
-        transition = function(s, a)
-            t, Ta, Tt = s
-            # Move time forward, but not beyond the true end time
-            t = min(t + 1, Tt)
+#         transition = function(s, a)
+#             t, Ta, Tt = s
+#             # Move time forward, but not beyond the true end time
+#             t = min(t + 1, Tt)
 
-            # Update Ta to the announced_time chosen by the action
-            # Note that the action can be any number in min_end_time:max_end_time 
-            # The paper restricts this to only the previous observed time
-            new_Ta = a.announced_time
-            sp = (t, new_Ta, Tt)
+#             # Update Ta to the announced_time chosen by the action
+#             # Note that the action can be any number in min_end_time:max_end_time 
+#             # The paper restricts this to only the previous observed time
+#             new_Ta = a.announced_time
+#             sp = (t, new_Ta, Tt)
 
-            return Deterministic(sp)
-        end,
+#             return Deterministic(sp)
+#         end,
 
-        observation = function(a, sp)
-            # We have just transitioned from (t - 1, Ta_prev, Tt) to (t, Ta, Tt)
-            t, Ta, Tt = sp
+#         observation = function(a, sp)
+#             # We have just transitioned from (t - 1, Ta_prev, Tt) to (t, Ta, Tt)
+#             t, Ta, Tt = sp
 
-            # If the project is done or we are at the timestep before the maximum project completion time
-            # just return Tt deterministically
-            if t >= Tt || t + 1 == max_end_time
-                return Deterministic((t, Ta, Tt))
-            end
+#             # If the project is done or we are at the timestep before the maximum project completion time
+#             # just return Tt deterministically
+#             if t >= Tt || t + 1 == max_end_time
+#                 return Deterministic((t, Ta, Tt))
+#             end
 
-            # Otherwise, we have the case where the project is not done yet
-            # The minimum completion time we can observe the maximium of 
-            # the current time plus 1 (i.e. we think that after the next transition we will be done)
-            # and the minimum observed completion time (min_end_time)
-            min_obs_time = max(t + 1, min_end_time)
+#             # Otherwise, we have the case where the project is not done yet
+#             # The minimum completion time we can observe the maximium of 
+#             # the current time plus 1 (i.e. we think that after the next transition we will be done)
+#             # and the minimum observed completion time (min_end_time)
+#             min_obs_time = max(t + 1, min_end_time)
 
-            possible_Tos = collect(min_obs_time:max_end_time)
+#             possible_Tos = collect(min_obs_time:max_end_time)
 
-            # Calculate parameters of the truncated normal
-            mu = Tt
-            std = (Tt - t) / 1.5
+#             # Calculate parameters of the truncated normal
+#             mu = Tt
+#             std = (Tt - t) / 1.5
             
-            if Tt - t <= 0 
-                # The task is done, so we should observe the true end time
-                return Deterministic((t, Ta, Tt))
-            end
+#             if Tt - t <= 0 
+#                 # The task is done, so we should observe the true end time
+#                 return Deterministic((t, Ta, Tt))
+#             end
 
-            base_dist = Normal(mu, std)
-            # the truncated normal distribution is defined from t+1 to max_end_time
-            lower = min_obs_time
-            upper = max_end_time
-            cdf_lower = cdf(base_dist, lower)
-            cdf_upper = cdf(base_dist, upper)
-            denom = cdf_upper - cdf_lower
+#             base_dist = Normal(mu, std)
+#             # the truncated normal distribution is defined from t+1 to max_end_time
+#             lower = min_obs_time
+#             upper = max_end_time
+#             cdf_lower = cdf(base_dist, lower)
+#             cdf_upper = cdf(base_dist, upper)
+#             denom = cdf_upper - cdf_lower
 
-            probs = Float64[]
-            for To_val in possible_Tos
-                p = (pdf(base_dist, To_val) / denom)
-                push!(probs, p)
-            end
+#             probs = Float64[]
+#             for To_val in possible_Tos
+#                 p = (pdf(base_dist, To_val) / denom)
+#                 push!(probs, p)
+#             end
 
-            total_p = sum(probs)
-            if total_p == 0.0
-                return Deterministic((t, Ta, Tt))
-            end
-            probs ./= total_p
+#             total_p = sum(probs)
+#             if total_p == 0.0
+#                 return Deterministic((t, Ta, Tt))
+#             end
+#             probs ./= total_p
 
-            obs_list = [(t, Ta, To_val) for To_val in possible_Tos]
+#             obs_list = [(t, Ta, To_val) for To_val in possible_Tos]
             
-            return SparseCat(obs_list, probs)
-        end,
+#             return SparseCat(obs_list, probs)
+#         end,
 
-        reward = function(s, a)
-            # Reward for taking action a in state s
-            t, Ta, Tt = s
+#         reward = function(s, a)
+#             # Reward for taking action a in state s
+#             t, Ta, Tt = s
             
-            # Dead-simple reward - just penalize for the difference between announced and true end time
-            r = -1 * abs(Ta - Tt)
+#             # Dead-simple reward - just penalize for the difference between announced and true end time
+#             r = -1 * abs(Ta - Tt)
 
-            return r
-        end,
+#             return r
+#         end,
 
-        initialstate = function()
-            if initial_announce == nothing
-                initial_announce = min_end_time
-            end
+#         initialstate = function()
+#             if initial_announce == nothing
+#                 initial_announce = min_end_time
+#             end
 
-            if isnothing(fixed_true_end_time)
-                # Randomly select a true end time
-                possible_states = [(0, initial_announce, Tt) for Tt in min_end_time:max_end_time]
-            else
-                # Use the fixed true end time
-                possible_states = [(0, initial_announce, fixed_true_end_time)]
-            end
+#             if isnothing(fixed_true_end_time)
+#                 # Randomly select a true end time
+#                 possible_states = [(0, initial_announce, Tt) for Tt in min_end_time:max_end_time]
+#             else
+#                 # Use the fixed true end time
+#                 possible_states = [(0, initial_announce, fixed_true_end_time)]
+#             end
             
-            num_states = length(possible_states)
-            probabilities = fill(1.0 / num_states, num_states)
-            return SparseCat(possible_states, probabilities)
-        end,
-        isterminal = function(s)
-            t, Ta, Tt = s
-            return t == Tt + 1
-        end
-    )
-    return pomdp
-end
+#             num_states = length(possible_states)
+#             probabilities = fill(1.0 / num_states, num_states)
+#             return SparseCat(possible_states, probabilities)
+#         end,
+#         isterminal = function(s)
+#             t, Ta, Tt = s
+#             return t == Tt + 1
+#         end
+#     )
+#     return pomdp
+# end
+
+# Original
 
 # function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false)
 #     # Constants for rewards

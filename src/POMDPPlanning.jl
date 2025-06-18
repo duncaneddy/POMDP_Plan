@@ -73,7 +73,7 @@ function parse_commandline()
         "--discount", "-d"
             help = "Discount factor for the POMDP"
             arg_type = Float64
-            default = 0.99
+            default = 0.99999 # Keep fairly high since this is actually a finite horizon problem
         "--verbose", "-v"
             help = "Enable verbose output"
             nargs = 0
