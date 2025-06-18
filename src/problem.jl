@@ -16,7 +16,7 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
         # Wrong announcement when project completes
         "wrong_end_time_reward" => -1000,
         # Reached announced deadline but project not done
-        "missed_deadline_penalty" => -50,
+        "missed_deadline_penalty" => -1,
         # Per time step of announcing later than completion
         "over_commitment_penalty" => -15,
         # Per step penalty for error in current estimate
@@ -27,8 +27,6 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
         "magnitude_penalty_rate" => 1.0,
         # High penalty for step-before changes
         "step_before_penalty" => 75.0,
-        # Small magnitude scaling for step-before
-        "magnitude_independence_factor" => 2.0,
         # Base urgency penalty coefficient
         "timing_penalty_rate" => 20.0,
         # How much magnitude affects timing penalty
@@ -183,16 +181,14 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
                 # magnitude_penalty = -penalties["magnitude_penalty_rate"] * change_magnitude
                 
                 # # Timing penalty
-                # if time_to_announced == 1
-                #     # Day before: high penalty mostly independent of magnitude
-                #     timing_penalty = -(penalties["step_before_penalty"] + 
-                #                     penalties["magnitude_independence_factor"] * change_magnitude)
-                # else
-                #     # General case: penalty scales with time to deadline/accounced time
-                #     urgency_factor = 1.0 / time_to_announced
-                #     timing_penalty = -penalties["timing_penalty_rate"] * urgency_factor * 
-                #                     (1.0 + penalties["magnitude_scaling"] * change_magnitude)
-                # end
+                if time_to_announced == 1
+                    # Day before: high penalty mostly independent of magnitude
+                    timing_penalty = -penalties["step_before_penalty"]
+                else
+                    # General case: penalty scales with time to deadline/accounced time
+                    urgency_factor = 1.0 / time_to_announced
+                    timing_penalty = -penalties["timing_penalty_rate"] * urgency_factor * (1.0 + penalties["magnitude_scaling"] * change_magnitude)
+                end
                 
                 # # Direction bias
                 # direction_penalty = 0.0
