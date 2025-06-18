@@ -16,7 +16,7 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
         # Wrong announcement when project completes
         "wrong_end_time_reward" => -1000,
         # Reached announced deadline but project not done
-        "missed_deadline_penalty" => -500,
+        "missed_deadline_penalty" => -50,
         # Per time step of announcing later than completion
         "over_commitment_penalty" => -15,
         # Per step penalty for error in current estimate
@@ -148,11 +148,11 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
                 reward += penalties["missed_deadline_penalty"]
             end
             
-            # 2. Over-commitment: project finished but announced later
-            if t == Tt && Ta > Tt
-                over_commit_days = Ta - Tt
-                reward += penalties["over_commitment_penalty"] * over_commit_days
-            end
+            # # 2. Over-commitment: project finished but announced later
+            # if t == Tt && Ta > Tt
+            #     over_commit_days = Ta - Tt
+            #     reward += penalties["over_commitment_penalty"] * over_commit_days
+            # end
             
             # === TERMINAL CONDITIONS ===
             
@@ -179,30 +179,30 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
                 # Base penalty for any change
                 base_penalty = -penalties["base_change_penalty"]
                 
-                # Magnitude penalty  
-                magnitude_penalty = -penalties["magnitude_penalty_rate"] * change_magnitude
+                # # Magnitude penalty  
+                # magnitude_penalty = -penalties["magnitude_penalty_rate"] * change_magnitude
                 
-                # Timing penalty
-                if time_to_announced == 1
-                    # Day before: high penalty mostly independent of magnitude
-                    timing_penalty = -(penalties["step_before_penalty"] + 
-                                    penalties["magnitude_independence_factor"] * change_magnitude)
-                else
-                    # General case: penalty scales with time to deadline/accounced time
-                    urgency_factor = 1.0 / time_to_announced
-                    timing_penalty = -penalties["timing_penalty_rate"] * urgency_factor * 
-                                    (1.0 + penalties["magnitude_scaling"] * change_magnitude)
-                end
+                # # Timing penalty
+                # if time_to_announced == 1
+                #     # Day before: high penalty mostly independent of magnitude
+                #     timing_penalty = -(penalties["step_before_penalty"] + 
+                #                     penalties["magnitude_independence_factor"] * change_magnitude)
+                # else
+                #     # General case: penalty scales with time to deadline/accounced time
+                #     urgency_factor = 1.0 / time_to_announced
+                #     timing_penalty = -penalties["timing_penalty_rate"] * urgency_factor * 
+                #                     (1.0 + penalties["magnitude_scaling"] * change_magnitude)
+                # end
                 
-                # Direction bias
-                direction_penalty = 0.0
-                if new_Ta < Tt
-                    direction_penalty += -penalties["early_bias_penalty"] * change_magnitude / time_to_announced
-                elseif new_Ta > Tt
-                    direction_penalty = -penalties["late_bias_penalty"] * change_magnitude / time_to_announced
-                end
+                # # Direction bias
+                # direction_penalty = 0.0
+                # if new_Ta < Tt
+                #     direction_penalty += -penalties["early_bias_penalty"] * change_magnitude / time_to_announced
+                # elseif new_Ta > Tt
+                #     direction_penalty = -penalties["late_bias_penalty"] * change_magnitude / time_to_announced
+                # end
                 
-                reward += base_penalty + magnitude_penalty + timing_penalty + direction_penalty
+                # reward += base_penalty + magnitude_penalty + timing_penalty + direction_penalty
             end
             
             return reward

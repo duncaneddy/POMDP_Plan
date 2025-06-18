@@ -23,3 +23,4 @@ model.pomdpx
 policy.out
 scripts/*.png
 *.html
+*.policy
