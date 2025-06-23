@@ -25,3 +25,4 @@ scripts/*.png
 *.html
 *.policy
 *.pomdpx
+*.jld2

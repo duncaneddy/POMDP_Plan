@@ -82,7 +82,7 @@ function get_policy(pomdp, solver_type, output_dir;
         elapsed_time = @elapsed policy = solve(NativeSARSOP.SARSOPSolver(), pomdp)
     elseif uppercase(solver_type) == "CXX_SARSOP"
         println("Computing policy using SARSOP solver")
-        elapsed_time = @elapsed policy = solve(SARSOP.SARSOPSolver(timeout=600, policy_interval=300), pomdp) # use precision=, timeout= to change exit criterion, policy_interval= (seconds)
+        elapsed_time = @elapsed policy = solve(SARSOP.SARSOPSolver(timeout=300, verbose=true), pomdp) # use precision=, timeout= to change exit criterion, policy_interval=300 (seconds)
     elseif uppercase(solver_type) == "POMCP"
         println("Computing policy using POMCP solver")
         elapsed_time = @elapsed policy = solve(POMCPSolver(tree_queries=10_000, max_depth=max_end_time), pomdp)
