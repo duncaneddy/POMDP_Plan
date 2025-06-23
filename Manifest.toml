@@ -2,7 +2,7 @@
 
 julia_version = "1.11.5"
 manifest_format = "2.0"
-project_hash = "818f532e56e8da8b3b1625d4f81680557350657e"
+project_hash = "7914e09a92368c9d16bd76a532f63a8b1de678f6"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -463,9 +463,9 @@ version = "1.0.2"
 
 [[deps.HTTP]]
 deps = ["Base64", "CodecZlib", "ConcurrentUtilities", "Dates", "ExceptionUnwrapping", "Logging", "LoggingExtras", "MbedTLS", "NetworkOptions", "OpenSSL", "PrecompileTools", "Random", "SimpleBufferStream", "Sockets", "URIs", "UUIDs"]
-git-tree-sha1 = "f93655dc73d7a0b4a368e3c0bce296ae035ad76e"
+git-tree-sha1 = "ed5e9c58612c4e081aecdb6e1a479e18462e041e"
 uuid = "cd3eb016-35fb-5094-929b-558a96fad6f3"
-version = "1.10.16"
+version = "1.10.17"
 
 [[deps.HarfBuzz_jll]]
 deps = ["Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "Graphite2_jll", "JLLWrappers", "Libdl", "Libffi_jll"]
@@ -763,6 +763,12 @@ git-tree-sha1 = "5de60bc6cb3899cd318d80d627560fae2e2d99ae"
 uuid = "856f044c-d86e-5d09-b602-aeab76dc8ba7"
 version = "2025.0.1+1"
 
+[[deps.MOMDPs]]
+deps = ["LinearAlgebra", "POMDPLinter", "POMDPTools", "POMDPs"]
+git-tree-sha1 = "258f43dc1d7e45a6f13d1791202bd086fd389bc1"
+uuid = "77fc6e33-3f81-4304-8123-5a68e6b3eeb4"
+version = "0.1.1"
+
 [[deps.MacroTools]]
 git-tree-sha1 = "1e0228a030642014fe5cfe68c2c0a818f9e3f522"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
@@ -943,10 +949,10 @@ uuid = "7588e00f-9cae-40de-98dc-e0c70c48cdd7"
 version = "1.1.0"
 
 [[deps.POMDPXFiles]]
-deps = ["LightXML", "POMDPTools", "POMDPs", "ProgressMeter"]
-git-tree-sha1 = "b625976c74a2611182324d76061247fe69f922e6"
+deps = ["LightXML", "MOMDPs", "POMDPTools", "POMDPs", "ProgressMeter"]
+git-tree-sha1 = "6048ddc096c7e20621feb97423b7e28a58e3b365"
 uuid = "c6f6ee83-58c6-5336-a19f-2c76817e1af6"
-version = "0.3.0"
+version = "0.3.1"
 
 [[deps.POMDPs]]
 deps = ["Distributions", "Graphs", "NamedTupleTools", "POMDPLinter", "Pkg", "Random", "Statistics"]
@@ -1240,10 +1246,10 @@ uuid = "f50d1b31-88e8-58de-be2c-1cc44531875f"
 version = "0.5.1+0"
 
 [[deps.SARSOP]]
-deps = ["POMDPLinter", "POMDPTools", "POMDPXFiles", "POMDPs", "Parameters", "SARSOP_jll"]
-git-tree-sha1 = "cf67e1c5f30d73f6ca27161db118b7c8387df9a0"
+deps = ["MOMDPs", "POMDPLinter", "POMDPTools", "POMDPXFiles", "POMDPs", "Parameters", "SARSOP_jll"]
+git-tree-sha1 = "2bf340f35a20ee3a50ffb8e7b8d33ab0c274c5f4"
 uuid = "cef570c6-3a94-5604-96b7-1a5e143043f2"
-version = "0.5.8"
+version = "0.6.0"
 
 [[deps.SARSOP_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -1456,9 +1462,9 @@ uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
 version = "0.1.10"
 
 [[deps.URIs]]
-git-tree-sha1 = "cbbebadbcc76c5ca1cc4b4f3b0614b3e603b5000"
+git-tree-sha1 = "24c1c558881564e2217dcf7840a8b2e10caeb0f9"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
-version = "1.5.2"
+version = "1.6.0"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
@@ -1482,9 +1488,9 @@ version = "0.4.1"
 
 [[deps.UnicodePlots]]
 deps = ["ColorSchemes", "ColorTypes", "Contour", "Crayons", "Dates", "LinearAlgebra", "MarchingCubes", "NaNMath", "PrecompileTools", "Printf", "SparseArrays", "StaticArrays", "StatsBase"]
-git-tree-sha1 = "24c0e2df19eb3f894d28a64e7486926f38de8a49"
+git-tree-sha1 = "de59fe48523decf3ca312cc1b56ee687f93a5b00"
 uuid = "b8865327-cd53-5732-bb35-84acbb429228"
-version = "3.7.2"
+version = "3.8.0"
 
     [deps.UnicodePlots.extensions]
     FreeTypeExt = ["FileIO", "FreeType"]
