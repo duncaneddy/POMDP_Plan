@@ -218,7 +218,9 @@ function POMDPs.reward(problem::PlanningProblem, state::Tuple{Tuple{Int, Int}, I
 
     # Add penalty if action changes from previous announced time
     if t > 0 && Ta != action
-        r -= 3.0  # Penalty for changing the announced time
+        if (action != Tt)
+            r -= 3.0  # Penalty for changing the announced time
+        end
     end
 
     if Tt == t
