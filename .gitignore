@@ -26,3 +26,4 @@ scripts/*.png
 *.policy
 *.pomdpx
 *.jld2
+digest.txt
