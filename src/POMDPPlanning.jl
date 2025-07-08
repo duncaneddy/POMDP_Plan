@@ -9,6 +9,7 @@ using PkgVersion
 using POMDPs
 using QuickPOMDPs
 using POMDPTools
+using MOMDPs
 using JLD2
 
 # Solvers
@@ -36,6 +37,7 @@ const VERSION = string(PkgVersion.@Version)
 # Include subfiles The import order matters for compilation
 include("utils.jl")
 include("problem.jl")
+include("momdp.jl")
 include("solvers.jl")
 include("simulation.jl")
 include("analysis.jl")
@@ -282,7 +284,6 @@ function main()
         end
 
         # Print type of policy
-        println("Policy type: $(typeof(policy))")
         isa(policy, ObservedTimePolicy) && println("This is an ObservedTimePolicy")
         
         # Run evaluation

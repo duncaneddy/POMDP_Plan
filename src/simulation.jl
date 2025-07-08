@@ -3,6 +3,8 @@ function simulate_single(pomdp, policy;
                         initial_announce=nothing,
                         collect_beliefs=true,
                         verbose=false)
+    is_momdp = isa(pomdp, PlanningProblem)
+    println("Running simulation with $(is_momdp ? "MOMDP" : "POMDP") formulation")
     step = 0
     r_sum = 0
     obs_old = NaN # dummy initialization
@@ -36,7 +38,13 @@ function simulate_single(pomdp, policy;
     for (b, s, a, o, r) in stepthrough(pomdp, policy, updater, "b,s,a,o,r"; max_steps=1_000_000) # should be able to set max_steps=max_end_time+1
         r_sum += r
         step += 1
-        t, Ta, Tt = s
+
+        if is_momdp
+            t, Ta = s[1]
+            Tt = s[2]
+        else
+            t, Ta, Tt = s
+        end
 
         # Store belief for later plotting if requested
         if collect_beliefs
@@ -49,8 +57,16 @@ function simulate_single(pomdp, policy;
         end
 
         # Track announcement changes
-        if step > 1 && Ta != a.announced_time
-            push!(announcement_changes, (t, Ta, a.announced_time, a.announced_time - Ta))
+        if is_momdp
+            a_value = a
+            obs = o
+        else
+            a_value = a.announced_time  # Extract action value from AnnounceAction
+            obs = o[3]
+        end
+
+        if step > 1 && Ta != a
+            push!(announcement_changes, (t, Ta, a_value, a_value - Ta))
         end
 
         if verbose
@@ -58,13 +74,20 @@ function simulate_single(pomdp, policy;
             println("True End Time: ", Tt)
             println("Previous Announced Time: ", Ta)
             println("Old Observation: ", obs_old)
-            println("Action: ", a)
-            println("Observed Time: ", o[3])
-            obs_old = o[3]
+            println("Action: ", a_value)
+            println("Observed Time: ", obs)
+            obs_old = obs
             print_belief_states_and_probs(b)
             @show r r_sum
             println()
         end
+
+        if is_momdp
+            believed_Tt = highest_belief_state(b)[2]
+        else
+            believed_Tt = highest_belief_state(b)[3]
+        end
+        
 
         # Save detailed metrics for this step
         iteration_detail = Dict(
@@ -72,17 +95,17 @@ function simulate_single(pomdp, policy;
             "Tt" => Tt,
             "Ta_prev" => Ta,
             "To_prev" => obs_old,
-            "action" => a.announced_time,
-            "To" => o[3],
+            "action" => a_value,
+            "To" => obs,
             "reward" => r,
             "cumulative_reward" => r_sum,
-            "high_b_Tt" => highest_belief_state(b)[3],
-            "belief_error" => abs(highest_belief_state(b)[3] - Tt),
-            "announced_error" => abs(a.announced_time - Tt)
+            "high_b_Tt" => believed_Tt,
+            "belief_error" => abs(believed_Tt - Tt),
+            "announced_error" => abs(a_value - Tt)
         )
         push!(iteration_details, iteration_detail)
 
-        obs_old = o[3]
+        obs_old = obs
         if t == Tt
             if verbose
                 println("Project complete!")

@@ -9,6 +9,7 @@
     POMCP
     MOSTLIKELY
     OBSERVEDTIME
+    MOMDP_SARSOP
 end
 
 struct MostLikelyPolicy <: Policy end
@@ -58,7 +59,6 @@ function POMDPs.action(policy::ObservedTimePolicy, belief, state=nothing)
     return AnnounceAction(Ta)
 end
 
-
 function get_policy(pomdp, solver_type, output_dir;
                     min_end_time::Int=10, 
                     max_end_time::Int=20, 
@@ -83,6 +83,9 @@ function get_policy(pomdp, solver_type, output_dir;
     elseif uppercase(solver_type) == "CXX_SARSOP"
         println("Computing policy using SARSOP solver")
         elapsed_time = @elapsed policy = solve(SARSOP.SARSOPSolver(timeout=300, verbose=true), pomdp) # use precision=, timeout= to change exit criterion, policy_interval=300 (seconds)
+    elseif uppercase(solver_type) == "MOMDP_SARSOP"
+        println("Computing policy using MOMDP formulation and SARSOP solver")
+        elapsed_time = @elapsed policy = solve(MOMDP_SARSOP.SARSOPSolver(timeout=300, pomdp_filename="planning_momdp.pomdpx", policy_filename="momdp_policy.policy", verbose=true), pomdp) # use precision=, timeout= to change exit criterion, policy_interval=300 (seconds)
     elseif uppercase(solver_type) == "POMCP"
         println("Computing policy using POMCP solver")
         elapsed_time = @elapsed policy = solve(POMCPSolver(tree_queries=10_000, max_depth=max_end_time), pomdp)
@@ -113,14 +116,17 @@ function get_policy(pomdp, solver_type, output_dir;
     )
     
     # Save policy
-    policy_filepath = joinpath(output_dir, "policy_$(lowercase(solver_type)).jld2")
-    if isfile(policy_filepath)
-        if verbose
-            println("Removing existing policy file: $policy_filepath")
+    if uppercase(solver_type) != "MOSTLIKELY" && uppercase(solver_type) != "OBSERVEDTIME" && uppercase(solver_type) != "MOMDP_SARSOP"
+        policy_filepath = joinpath(output_dir, "policy_$(lowercase(solver_type)).jld2")
+        if isfile(policy_filepath)
+            if verbose
+                println("Removing existing policy file: $policy_filepath")
+            end
+            rm(policy_filepath)
         end
-        rm(policy_filepath)
+        save(policy_filepath, "policy", policy, "metadata", metadata)
+        println("Policy saved to: $policy_filepath")
     end
-    save(policy_filepath, "policy", policy, "metadata", metadata)
     
     # Save metadata separately as JSON for easier inspection
     metadata_filepath = joinpath(output_dir, "policy_$(lowercase(solver_type)).json")
@@ -129,7 +135,6 @@ function get_policy(pomdp, solver_type, output_dir;
     end
     
     if verbose
-        println("Policy saved to: $policy_filepath")
         println("Metadata saved to: $metadata_filepath")
     end
 
@@ -138,7 +143,7 @@ function get_policy(pomdp, solver_type, output_dir;
     output = Dict(
         "policy" => policy,
         "metadata" => metadata,
-        "comp_policy_time" => elapsed_time
+        "policy_solve_time" => elapsed_time
     )
     
     return output

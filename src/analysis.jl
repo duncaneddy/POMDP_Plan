@@ -55,16 +55,20 @@ end
 
 # Add these functions to src/analysis.jl
 
-function plot_belief_distribution(belief, true_end_time, min_end_time, max_end_time, timestep, announced_time; title_prefix="")
+function plot_belief_distribution(belief, true_end_time, min_end_time, max_end_time, timestep, announced_time; title_prefix="", is_momdp=false)
     states, probs = extract_belief_states_and_probs(belief)
     
     # Extract only the Tt (true end time) component and its probability
-    end_times = [s[3] for s in states]
     end_time_probs = Dict{Int, Float64}()
     
     # Aggregate probabilities by end time (may have multiple states with same end time)
     for (state, prob) in zip(states, probs)
-        Tt = state[3]
+        if is_momdp == true
+            Tt = state[2]  # Extract true end time from state tuple
+        else
+            # For standard POMDP, state is a tuple (t, Ta, Tt)
+            Tt = state[3]
+        end
         end_time_probs[Tt] = get(end_time_probs, Tt, 0.0) + prob
     end
     
@@ -192,7 +196,7 @@ function plot_reward_evolution(run_details; title_prefix="")
     return p
 end
 
-function plot_observation_probability(pomdp, state, true_end_time, min_end_time, max_end_time, actual_observation=nothing; title_prefix="")
+function plot_observation_probability(pomdp, state, true_end_time, min_end_time, max_end_time, actual_observation=nothing; title_prefix="", is_momdp=false)
     t, Ta, Tt = state
     
     # Skip if at or past end time
@@ -201,8 +205,15 @@ function plot_observation_probability(pomdp, state, true_end_time, min_end_time,
     end
     
     # Create dummy action to use in observation model
-    a = AnnounceAction(Ta)
-    next_state = (t+1, Ta, Tt)
+    if is_momdp
+        # For MOMDP, we need to adjust the state tuple
+        a = Ta
+        next_state = ((t+1, Ta), Tt)
+    else
+        # For standard POMDP, we keep the same state structure
+        a = AnnounceAction(Ta)
+        next_state = (t+1, Ta, Tt)
+    end
     
     # Get observation distribution
     obs_dist = POMDPs.observation(pomdp, a, next_state)
@@ -210,7 +221,13 @@ function plot_observation_probability(pomdp, state, true_end_time, min_end_time,
     # If it's a deterministic distribution, convert to histogram format
     if obs_dist isa Deterministic
         o = obs_dist.val
-        obs_time = o[3]
+        if is_momdp
+            # For MOMDP, the observation is a tuple (t, Ta, To)
+            obs_time = o # Extract To from the tuple
+        else
+            # For standard POMDP, the observation is a tuple (t, Ta, Tt)    
+            obs_time = o[3]
+        end
         x_values = collect(min_end_time:max_end_time)
         y_values = zeros(length(x_values))
         idx = findfirst(x -> x == obs_time, x_values)
@@ -223,7 +240,11 @@ function plot_observation_probability(pomdp, state, true_end_time, min_end_time,
         probs = obs_dist.probs
         
         # Extract only the To (observed time) component
-        obs_times = [o[3] for o in obs_list]
+        if is_momdp
+            obs_times = [o for o in obs_list]
+        else
+            obs_times = [o[3] for o in obs_list]
+        end
         
         # Create mapping of observation time to probability
         time_probs = Dict{Int, Float64}()
@@ -300,7 +321,7 @@ function plot_error_evolution(run_details; title_prefix="")
     return p
 end
 
-function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, max_end_time; title_prefix="")
+function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, max_end_time; title_prefix="", is_momdp=false)
     """
     Creates a 2D heatmap showing the evolution of belief probabilities over time.
     
@@ -334,7 +355,12 @@ function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, m
         # Aggregate probabilities by true end time (Tt)
         end_time_probs = Dict{Int, Float64}()
         for (state, prob) in zip(states, probs)
-            Tt = state[3]  # Extract true end time from state tuple (t, Ta, Tt)
+            if is_momdp
+                Tt = state[2]  # Extract true end time from state tuple
+            else
+                # For standard POMDP, state is a tuple (t, Ta, Tt)
+                Tt = state[3]
+            end
             end_time_probs[Tt] = get(end_time_probs, Tt, 0.0) + prob
         end
         
@@ -379,13 +405,13 @@ function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, m
     return p
 end
 
-function plot_2d_belief_evolution_with_actions(belief_history, run_details, true_end_time, min_end_time, max_end_time; title_prefix="")
+function plot_2d_belief_evolution_with_actions(belief_history, run_details, true_end_time, min_end_time, max_end_time; title_prefix="", is_momdp=false)
     """
     Enhanced version that also overlays the announced times as a trajectory.
     """
     
     # Create the base 2D belief evolution plot
-    p = plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, max_end_time, title_prefix=title_prefix)
+    p = plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, max_end_time, title_prefix=title_prefix, is_momdp=is_momdp)
     
     if p === nothing
         return nothing
@@ -433,6 +459,12 @@ function create_debug_plots(pomdp, run_details, min_end_time, max_end_time, outp
     if !isdir(plots_dir)
         mkpath(plots_dir)
     end
+
+    if isa(pomdp, PlanningProblem)
+        is_momdp = true
+    else
+        is_momdp = false
+    end
     
     # Extract true end time from the first step
     true_end_time = run_details[1]["Tt"]
@@ -472,7 +504,8 @@ function create_debug_plots(pomdp, run_details, min_end_time, max_end_time, outp
                 min_end_time, 
                 max_end_time, 
                 timestep,
-                announced_times[i]
+                announced_times[i],
+                is_momdp=is_momdp
             )
             savefig(p_belief, joinpath(belief_plots_dir, "belief_t$(lpad(timestep, 2, '0')).png"))
         end
@@ -504,7 +537,8 @@ function create_debug_plots(pomdp, run_details, min_end_time, max_end_time, outp
                 true_end_time,
                 min_end_time,
                 max_end_time,
-                step["To"]
+                step["To"],
+                is_momdp=is_momdp
             )
             
             if p_obs !== nothing
@@ -518,7 +552,8 @@ function create_debug_plots(pomdp, run_details, min_end_time, max_end_time, outp
         belief_history, 
         true_end_time, 
         min_end_time, 
-        max_end_time
+        max_end_time,
+        is_momdp=is_momdp
     )
     if p_belief_2d !== nothing
         savefig(p_belief_2d, joinpath(plots_dir, "belief_evolution_2d.png"))
@@ -529,7 +564,8 @@ function create_debug_plots(pomdp, run_details, min_end_time, max_end_time, outp
         run_details,
         true_end_time, 
         min_end_time, 
-        max_end_time
+        max_end_time,
+        is_momdp=is_momdp
     )
     if p_belief_2d_enhanced !== nothing
         savefig(p_belief_2d_enhanced, joinpath(plots_dir, "belief_evolution_2d_with_actions.png"))
