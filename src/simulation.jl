@@ -16,9 +16,16 @@ function simulate_single(pomdp, policy;
     first_announced = nothing
 
     # Get domain parameters from POMDP
-    state_list = states(pomdp)
-    min_end_time = minimum([s[3] for s in state_list if s[1] == 0])
-    max_end_time = maximum([s[3] for s in state_list if s[1] == 0])
+    if is_momdp
+        true_end_times = states_y(pomdp)
+        min_end_time = minimum(true_end_times)
+        max_end_time = maximum(true_end_times)
+    else
+        state_list = states(pomdp)
+        min_end_time = minimum([s[3] for s in state_list if s[1] == 0])
+        max_end_time = maximum([s[3] for s in state_list if s[1] == 0])
+    end
+    
 
     # Set up initial state with fixed true end time if specified
     if fixed_true_end_time !== nothing

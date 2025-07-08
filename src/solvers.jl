@@ -85,7 +85,7 @@ function get_policy(pomdp, solver_type, output_dir;
         elapsed_time = @elapsed policy = solve(SARSOP.SARSOPSolver(timeout=300, verbose=true), pomdp) # use precision=, timeout= to change exit criterion, policy_interval=300 (seconds)
     elseif uppercase(solver_type) == "MOMDP_SARSOP"
         println("Computing policy using MOMDP formulation and SARSOP solver")
-        elapsed_time = @elapsed policy = solve(SARSOP.SARSOPSolver(timeout=300, pomdp_filename="planning_momdp.pomdpx", policy_filename="momdp_policy.policy", verbose=true), pomdp) # use precision=, timeout= to change exit criterion, policy_interval=300 (seconds)
+        elapsed_time = @elapsed policy = solve(SARSOP.SARSOPSolver(timeout=120, pomdp_filename="planning_momdp.pomdpx", policy_filename="momdp_policy.policy", verbose=true), pomdp) # use precision=, timeout= to change exit criterion, policy_interval=300 (seconds)
     elseif uppercase(solver_type) == "POMCP"
         println("Computing policy using POMCP solver")
         elapsed_time = @elapsed policy = solve(POMCPSolver(tree_queries=10_000, max_depth=max_end_time), pomdp)
@@ -99,6 +99,8 @@ function get_policy(pomdp, solver_type, output_dir;
         # println("Invalid solver type: $solver_type. Using random policy by default.")
         # elapsed_time = @elapsed policy = RandomPolicy(pomdp)
     end
+
+    println("Policy computed in $(elapsed_time) seconds")
     
     # Create directory if it doesn't exist
     if !isdir(output_dir)
@@ -126,6 +128,8 @@ function get_policy(pomdp, solver_type, output_dir;
         end
         save(policy_filepath, "policy", policy, "metadata", metadata)
         println("Policy saved to: $policy_filepath")
+    else
+        println("Skipping policy save")
     end
     
     # Save metadata separately as JSON for easier inspection
@@ -133,12 +137,9 @@ function get_policy(pomdp, solver_type, output_dir;
     open(metadata_filepath, "w") do f
         JSON.print(f, metadata, 4)  # 4 spaces for indentation
     end
-    
-    if verbose
-        println("Metadata saved to: $metadata_filepath")
-    end
+    println("Metadata saved to: $metadata_filepath")
 
-    println("Time to compute policy: ", elapsed_time, " seconds")
+    println("Policy solve complete.")
     
     output = Dict(
         "policy" => policy,
