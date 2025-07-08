@@ -162,15 +162,8 @@ function main()
     # Add your CLI logic here
     if args["command"] == "solve"
 
-        # Create planning POMDP
-        pomdp = define_pomdp(
-            args["min-end-time"],
-            args["max-end-time"],
-            args["discount"],
-            verbose=args["verbose"],
-            initial_announce=args["initial-announce"],
-            fixed_true_end_time=args["true-end-time"]
-        )
+        # Create planning problem
+        pomdp = nothing
 
         solvers = split(solvers_str, ",")
 
@@ -178,6 +171,26 @@ function main()
             
             if args["verbose"]
                 println("Running solver: $solver")
+            end
+
+            if uppercase(solver) == "MOMDP_SARSOP"
+                # Create MOMDP POMDP
+                pomdp = define_momdp(
+                    args["min-end-time"],
+                    args["max-end-time"],
+                    args["discount"],
+                    initial_announce=args["initial-announce"]
+                )
+            elseif pomdp === nothing
+                # Create planning POMDP
+                pomdp = define_pomdp(
+                    args["min-end-time"],
+                    args["max-end-time"],
+                    args["discount"],
+                    verbose=args["verbose"],
+                    initial_announce=args["initial-announce"],
+                    fixed_true_end_time=args["true-end-time"]
+                )
             end
             
             # Solve the POMDP using the specified solver
@@ -193,14 +206,25 @@ function main()
     elseif args["command"] == "evaluate"
 
         # Create planning POMDP
-        pomdp = define_pomdp(
-            args["min-end-time"],
-            args["max-end-time"],
-            args["discount"],
-            verbose=args["verbose"],
-            initial_announce=args["initial-announce"],
-            fixed_true_end_time=args["true-end-time"]
-        )
+        if uppercase(solvers[1]) == "MOMDP_SARSOP"
+            # Create MOMDP POMDP
+            pomdp = define_momdp(
+                args["min-end-time"],
+                args["max-end-time"],
+                args["discount"],
+                initial_announce=args["initial-announce"]
+            )
+        else
+            # Create planning POMDP
+            pomdp = define_pomdp(
+                args["min-end-time"],
+                args["max-end-time"],
+                args["discount"],
+                verbose=args["verbose"],
+                initial_announce=args["initial-announce"],
+                fixed_true_end_time=args["true-end-time"]
+            )
+        end
         
         # Load policy file or create one
         if args["policy-file"] == nothing

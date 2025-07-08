@@ -167,3 +167,17 @@ function POMDPs.isterminal(problem::PlanningProblem, state::Tuple{Tuple{Int, Int
     # The project is done if the current time t is greater than or equal to the true end time Tt
     return state[1][1] >= state[2]
 end
+
+function define_momdp(
+    min_end_time::Int=10, 
+    max_end_time::Int=20, 
+    discount_factor::Float64=0.975;
+    initial_announce::Union{Int, Nothing}=nothing
+)
+    return PlanningProblem(
+        min_end_time,
+        max_end_time,
+        discount_factor,
+        initial_announce
+    )
+end

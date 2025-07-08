@@ -65,7 +65,7 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
 
             # Calculate parameters of the truncated normal
             mu = Tt
-            std = (Tt - t) / 1.5
+            std = (Tt - t) / 3 # MAGIC NUMBER
             
             if Tt - t <= 0 
                 # The task is done, so we should observe the true end time
