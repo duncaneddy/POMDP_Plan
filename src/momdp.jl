@@ -160,32 +160,7 @@ function POMDPs.reward(problem::PlanningProblem, state::Tuple{Tuple{Int, Int}, I
     t, Ta = state[1]
     Tt = state[2]
 
-    # If the project is done, return a reward of 1
-    if t >= Tt || t + 1 == problem.max_end_time
-        return 0.0 # Originally 1.0
-    end
-
-    # Dead-simple reward - just penalize for the difference between announced and true end time
-    # return -1 * abs(Ta - Tt)
-
-    # Dead-simple reward - just penalize for the difference between announced and true end time
-    r = -2 * abs(action - Tt)
-
-    # Add penalty if action changes from previous announced time
-    if t > 0 && Ta != action
-        if (action != Tt)
-            r -= 3.0  # Penalty for changing the announced time
-        end
-    end
-
-    if Tt == t
-        # if Tt = t, we must announce t = Tt
-        if action != Tt
-            r -= 1000
-        end
-    end
-
-    return r
+    return calculate_reward(t, Ta, Tt, action, problem.min_end_time, problem.max_end_time)
 end
 
 function POMDPs.isterminal(problem::PlanningProblem, state::Tuple{Tuple{Int, Int}, Int})
