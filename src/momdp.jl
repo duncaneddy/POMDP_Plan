@@ -113,46 +113,7 @@ function POMDPs.observation(problem::PlanningProblem, action::Int, state::Tuple{
     t, Ta = state[1]
     Tt = state[2]
 
-    # If the project is done return the true end time Tt
-    if t >= Tt || t + 1 == problem.max_end_time
-        return Deterministic(Tt)
-    end
-
-    min_obs_time = max(t + 1, problem.min_end_time)
-
-    possible_Tos = collect(min_obs_time:problem.max_end_time)
-
-    # Calculate parameters of the truncated normal
-    mu = Tt
-    std = (Tt - t) / 3 # MAGIC NUMBER
-    
-    if Tt - t <= 0 
-        # The task is done, so we should observe the true end time
-        return Deterministic(Tt)
-    end
-
-    base_dist = Normal(mu, std)
-
-    # the truncated normal distribution is defined from t+1 to max_end_time
-    lower = min_obs_time
-    upper = problem.max_end_time
-    cdf_lower = cdf(base_dist, lower)
-    cdf_upper = cdf(base_dist, upper)
-    denom = cdf_upper - cdf_lower
-
-    probs = Float64[]
-    for To_val in possible_Tos
-        p = (pdf(base_dist, To_val) / denom)
-        push!(probs, p)
-    end
-
-    total_p = sum(probs)
-    if total_p == 0.0
-        return Deterministic(Tt)
-    end
-    probs ./= total_p
-    
-    return SparseCat(possible_Tos, probs)
+    return create_momdp_observation(t, Tt, problem.min_end_time, problem.max_end_time)
 
 end
 

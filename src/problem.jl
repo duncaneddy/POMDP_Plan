@@ -49,52 +49,7 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
             # We have just transitioned from (t - 1, Ta_prev, Tt) to (t, Ta, Tt)
             t, Ta, Tt = sp
 
-            # If the project is done or we are at the timestep before the maximum project completion time
-            # just return Tt deterministically
-            if t >= Tt || t + 1 == max_end_time
-                return Deterministic((t, Ta, Tt))
-            end
-
-            # Otherwise, we have the case where the project is not done yet
-            # The minimum completion time we can observe the maximium of 
-            # the current time plus 1 (i.e. we think that after the next transition we will be done)
-            # and the minimum observed completion time (min_end_time)
-            min_obs_time = max(t + 1, min_end_time)
-
-            possible_Tos = collect(min_obs_time:max_end_time)
-
-            # Calculate parameters of the truncated normal
-            mu = Tt
-            std = (Tt - t) / 3 # MAGIC NUMBER
-            
-            if Tt - t <= 0 
-                # The task is done, so we should observe the true end time
-                return Deterministic((t, Ta, Tt))
-            end
-
-            base_dist = Normal(mu, std)
-            # the truncated normal distribution is defined from t+1 to max_end_time
-            lower = min_obs_time
-            upper = max_end_time
-            cdf_lower = cdf(base_dist, lower)
-            cdf_upper = cdf(base_dist, upper)
-            denom = cdf_upper - cdf_lower
-
-            probs = Float64[]
-            for To_val in possible_Tos
-                p = (pdf(base_dist, To_val) / denom)
-                push!(probs, p)
-            end
-
-            total_p = sum(probs)
-            if total_p == 0.0
-                return Deterministic((t, Ta, Tt))
-            end
-            probs ./= total_p
-
-            obs_list = [(t, Ta, To_val) for To_val in possible_Tos]
-            
-            return SparseCat(obs_list, probs)
+            return create_pomdp_observation(t, Ta, Tt, min_end_time, max_end_time)
         end,
 
         reward = function(s, a)
