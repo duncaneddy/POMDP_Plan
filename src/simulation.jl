@@ -6,9 +6,13 @@ function simulate_single(pomdp, policy;
                         seed=nothing,
                         replay_data=nothing)
     is_momdp = isa(pomdp, PlanningProblem)
-    println("Running simulation with $(is_momdp ? "MOMDP" : "POMDP") formulation")
+    if verbose
+        println("Running simulation with $(is_momdp ? "MOMDP" : "POMDP") formulation")
+    end
     if replay_data !== nothing
-        println("Using replay data for simulation.")
+        if verbose
+            println("Using provided replay data for simulation.")
+        end
     end
     step = 0
     r_sum = 0
@@ -52,7 +56,9 @@ function simulate_single(pomdp, policy;
     else
         rng = MersenneTwister(seed)
     end
-    println("Using random seed: $seed")
+    if verbose
+        println("Using random seed: $seed")
+    end
 
     # Get initial state for rollout
     initial_state_distribution = initialstate(pomdp)
@@ -70,7 +76,9 @@ function simulate_single(pomdp, policy;
             s = Tuple(replay_data["initial_state"])
         end
     end
-    println("Using initial state: $s")
+    if verbose
+        println("Using initial state: $s")
+    end
 
     # Create data structure to save initial conditions and observation sequence for reproduction
     simulation_data = Dict(
@@ -98,7 +106,9 @@ function simulate_single(pomdp, policy;
                 o = Tuple(replay_data["observations"][step])
             end
         end
-        println("Step: $step Observation: $o")
+        if verbose
+            println("Step: $step, state: $s, action: $a, observation: $o")
+        end
 
         # Save observation for reproduction
         push!(simulation_data["observations"], o)
