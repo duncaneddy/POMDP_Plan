@@ -5,7 +5,7 @@ end
 
 # Original w/ simplified reward function
 
-function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false)
+function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false, std_divisor::Float64=3.0)
     # Constants for rewards
     IMPOSSIBLE_TIME_REWARD = -1000
     WRONG_END_TIME_REWARD = -1000
@@ -49,7 +49,7 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
             # We have just transitioned from (t - 1, Ta_prev, Tt) to (t, Ta, Tt)
             t, Ta, Tt = sp
 
-            return create_pomdp_observation(t, Ta, Tt, min_end_time, max_end_time)
+            return create_pomdp_observation(t, Ta, Tt, min_end_time, max_end_time, std_divisor=std_divisor)
         end,
 
         reward = function(s, a)

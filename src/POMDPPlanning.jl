@@ -77,6 +77,10 @@ function parse_commandline()
             help = "Discount factor for the POMDP"
             arg_type = Float64
             default = 0.98 # Keep fairly high since this is actually a finite horizon problem
+        "--std-divisor", "i"
+            help = "Standard deviation divisor for the noise in the true end time observation (default is 3.0)"
+            arg_type = Float64
+            default = 3.0
         "--verbose", "-v"
             help = "Enable verbose output"
             nargs = 0
@@ -98,6 +102,9 @@ function parse_commandline()
             help = "Initial announced time (default is min_end_time from policy metadata)"
             arg_type = Int
             default = nothing
+        "--replay-data", "-z"
+            help = "Path to an evaluation_results.json file to replay simulation data for reproduction"
+            arg_type = String
         "command"
             help = "Command to execute (solve or evaluate)"
             required = true
@@ -179,7 +186,8 @@ function main()
                     args["min-end-time"],
                     args["max-end-time"],
                     args["discount"],
-                    initial_announce=args["initial-announce"]
+                    initial_announce=args["initial-announce"],
+                    std_divisor=args["std-divisor"]
                 )
             elseif pomdp === nothing
                 # Create planning POMDP
@@ -189,7 +197,8 @@ function main()
                     args["discount"],
                     verbose=args["verbose"],
                     initial_announce=args["initial-announce"],
-                    fixed_true_end_time=args["true-end-time"]
+                    fixed_true_end_time=args["true-end-time"],
+                    std_divisor=args["std-divisor"]
                 )
             end
             
@@ -212,7 +221,8 @@ function main()
                 args["min-end-time"],
                 args["max-end-time"],
                 args["discount"],
-                initial_announce=args["initial-announce"]
+                initial_announce=args["initial-announce"],
+                std_divisor=args["std-divisor"]
             )
         else
             # Create planning POMDP
@@ -222,7 +232,8 @@ function main()
                 args["discount"],
                 verbose=args["verbose"],
                 initial_announce=args["initial-announce"],
-                fixed_true_end_time=args["true-end-time"]
+                fixed_true_end_time=args["true-end-time"],
+                std_divisor=args["std-divisor"]
             )
         end
         
@@ -308,6 +319,27 @@ function main()
             end
         end
 
+        # Load simulation data if provided
+        replay_data = nothing
+        if args["replay-data"] !== nothing
+            println("Loading replay data from $(args["replay-data"])")
+            try
+                replay_data = JSON.parsefile(args["replay-data"])
+
+                # Check if "simulation_data" key exists
+                if haskey(replay_data, "simulation_data")
+                    # Convert to array of dictionaries for easier access
+                    replay_data = replay_data["simulation_data"]
+                else
+                    println("Warning: 'simulation_data' key not found when replay data was provided. This means that the replay data is not in the expected format. Please ensure that the evaluation_results.json file contains a 'simulation_data' key with an array of simulation results.")
+                    return 1
+                end
+            catch e
+                println("Error loading replay data: $(e)")
+                return 1
+            end
+        end
+
         # Print type of policy
         isa(policy, ObservedTimePolicy) && println("This is an ObservedTimePolicy")
         
@@ -321,7 +353,8 @@ function main()
             initial_announce=args["initial-announce"],
             seed=args["seed"],  # Add this line
             verbose=args["verbose"],
-            solver=args["solvers"]  # Pass the solver type for metadata
+            solver=args["solvers"],  # Pass the solver type for metadata
+            replay_data=replay_data  # Pass the replay data if provided
         )
 
     elseif args["command"] == "experiments"
@@ -345,7 +378,8 @@ function main()
             initial_announce=args["initial-announce"],
             discount_factor=args["discount"],
             seed=args["seed"],  # Add this line
-            verbose=args["verbose"]
+            verbose=args["verbose"],
+            std_divisor=args["std-divisor"]
         )
         
     else

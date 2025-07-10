@@ -9,7 +9,8 @@ function run_experiment(
     initial_announce::Union{Int, Nothing}=0,
     discount_factor::Float64=0.99,
     seed::Union{Int, Nothing}=nothing,
-    verbose::Bool=false
+    verbose::Bool=false,
+    std_divisor::Float64=3.0
 )
     # Set random seed if provided or generate one
     if seed === nothing
@@ -48,7 +49,7 @@ function run_experiment(
     end
 
     # Create POMDP
-    pomdp = define_pomdp(min_end_time, max_end_time, discount_factor, verbose=verbose, initial_announce=initial_announce, fixed_true_end_time=fixed_true_end_time)
+    pomdp = define_pomdp(min_end_time, max_end_time, discount_factor, verbose=verbose, initial_announce=initial_announce, fixed_true_end_time=fixed_true_end_time, std_divisor=args["std-divisor"])
     
     # Generate policies for each solver
     policies = Dict()

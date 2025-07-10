@@ -1,8 +1,9 @@
-mutable struct PlanningProblem <: MOMDP{Tuple{Int, Int}, Int, Int, Int}
+mutable struct PlanningProblem <: MOMDP{Tuple{Int, Int}, Int, Int, Int, Float64}
     min_end_time::Int
     max_end_time::Int
     discount_factor::Float64
     initial_announced_time::Union{Int, Nothing}
+    std_divisor::Float64
 end
 
 # Define these relationships for the MOMDP to improve performance
@@ -113,7 +114,7 @@ function POMDPs.observation(problem::PlanningProblem, action::Int, state::Tuple{
     t, Ta = state[1]
     Tt = state[2]
 
-    return create_momdp_observation(t, Tt, problem.min_end_time, problem.max_end_time)
+    return create_momdp_observation(t, Tt, problem.min_end_time, problem.max_end_time, std_divisor=problem.std_divisor)
 
 end
 
@@ -133,12 +134,14 @@ function define_momdp(
     min_end_time::Int=10, 
     max_end_time::Int=20, 
     discount_factor::Float64=0.975;
-    initial_announce::Union{Int, Nothing}=nothing
+    initial_announce::Union{Int, Nothing}=nothing,
+    std_divisor::Float64=3.0
 )
     return PlanningProblem(
         min_end_time,
         max_end_time,
         discount_factor,
-        initial_announce
+        initial_announce,
+        std_divisor
     )
 end

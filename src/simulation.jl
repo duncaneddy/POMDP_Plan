@@ -2,9 +2,14 @@ function simulate_single(pomdp, policy;
                         fixed_true_end_time=nothing,
                         initial_announce=nothing,
                         collect_beliefs=true,
-                        verbose=false)
+                        verbose=false,
+                        seed=nothing,
+                        replay_data=nothing)
     is_momdp = isa(pomdp, PlanningProblem)
     println("Running simulation with $(is_momdp ? "MOMDP" : "POMDP") formulation")
+    if replay_data !== nothing
+        println("Using replay data for simulation.")
+    end
     step = 0
     r_sum = 0
     obs_old = NaN # dummy initialization
@@ -42,10 +47,70 @@ function simulate_single(pomdp, policy;
         updater = DiscreteUpdater(pomdp)
     end
 
+    if replay_data !== nothing
+        rng = MersenneTwister(replay_data["seed"])
+    else
+        rng = MersenneTwister(seed)
+    end
+    println("Using random seed: $seed")
 
-    for (b, s, a, o, r) in stepthrough(pomdp, policy, updater, "b,s,a,o,r"; max_steps=1_000_000) # should be able to set max_steps=max_end_time+1
-        r_sum += r
+    # Get initial state for rollout
+    initial_state_distribution = initialstate(pomdp)
+
+    # Set initial belief to just be a uniform belief over initial states
+    b = initialize_belief(updater, initial_state_distribution)
+    
+    # Sample initial state
+    if replay_data === nothing
+        s = rand(rng, initial_state_distribution)
+    else
+        if is_momdp
+            s = ((replay_data["initial_state"][1], replay_data["initial_state"][2]), replay_data["initial_state"][3])
+        else
+            s = Tuple(replay_data["initial_state"])
+        end
+    end
+    println("Using initial state: $s")
+
+    # Create data structure to save initial conditions and observation sequence for reproduction
+    simulation_data = Dict(
+        "initial_state" => deepcopy(s),
+        "observations" => [],
+        "seed" => seed 
+    )
+
+    while !isterminal(pomdp, s)
         step += 1
+
+        # Manually perform simulation update
+        a = action(policy, b)
+        (sp, r) = @gen(:sp, :r)(pomdp, s, a, rng)
+
+        # Generate Observation from distribution
+        observation_distribution = observation(pomdp, a, sp)
+        # o = rand(rng, observation_distribution)
+        if replay_data === nothing
+            o = rand(rng, observation_distribution)
+        else
+            if is_momdp
+                o = replay_data["observations"][step][3] # Only use the True Time part as the observation for the MOMDP
+            else
+                o = Tuple(replay_data["observations"][step])
+            end
+        end
+        println("Step: $step Observation: $o")
+
+        # Save observation for reproduction
+        push!(simulation_data["observations"], o)
+
+        # Update Belief and state
+        bp = update(updater, b, a, o)
+
+        b = deepcopy(bp)
+        s = deepcopy(sp)
+
+        # Process update
+        r_sum += r # * pomdp.discount_factor^step
 
         if is_momdp
             t, Ta = s[1]
@@ -99,7 +164,7 @@ function simulate_single(pomdp, policy;
 
         # Save detailed metrics for this step
         iteration_detail = Dict(
-            "timestep" => t,
+            "timestep" => t - 1,
             "Tt" => Tt,
             "Ta_prev" => Ta,
             "To_prev" => obs_old,
@@ -156,7 +221,8 @@ function simulate_single(pomdp, policy;
         "iterations" => iteration_details,
         "belief_history" => belief_history,
         "min_end_time" => min_end_time,
-        "max_end_time" => max_end_time
+        "max_end_time" => max_end_time,
+        "simulation_data" => simulation_data
     )
 
     return metrics
@@ -168,12 +234,19 @@ function simulate_many(pomdp, policy, num_simulations;
                     initial_announce=nothing,
                     collect_beliefs=false,
                     seed=nothing,
-                    verbose=false)
+                    verbose=false,
+                    replay_data=nothing)
 
     # Set random seed if provided
+    rand_range = 1:100_000_000
     if seed !== nothing
         println("Setting random seed to $seed")
         Random.seed!(seed)
+    end
+
+    # Check that if replay data is provided it is as long as num_simulations
+    if replay_data !== nothing && length(replay_data) < num_simulations
+        error("If replay_data is provided, it must be a list of length num_simulations")
     end
 
     println("Running $num_simulations simulation(s)")
@@ -188,6 +261,7 @@ function simulate_many(pomdp, policy, num_simulations;
     std_change_magnitudes = Float64[]
     all_run_details = []
     simulation_metrics = []
+    simulation_data = []
 
     progress = Progress(num_simulations, desc="Running simulations...")
 
@@ -196,6 +270,15 @@ function simulate_many(pomdp, policy, num_simulations;
             println("Simulation $i of $num_simulations")
         end
 
+        # If replay data is provided, use it for this run
+        sim_replay = nothing
+        if replay_data !== nothing
+            sim_replay = replay_data[i]
+        end
+
+        # Sample a random integer seed for this run to make them reproducible
+        run_seed = rand(rand_range)
+
         # Run a single simulation and collect metrics
         metrics = simulate_single(
             pomdp, 
@@ -203,7 +286,9 @@ function simulate_many(pomdp, policy, num_simulations;
             fixed_true_end_time=fixed_true_end_time,
             initial_announce=initial_announce,
             collect_beliefs=collect_beliefs,
-            verbose=(verbose && i == 1) # Only show verbose output for first simulation
+            verbose=(verbose && i == 1), # Only show verbose output for first simulation
+            replay_data=sim_replay,
+            seed=run_seed
         )
 
         # Store metrics from this run
@@ -216,6 +301,7 @@ function simulate_many(pomdp, policy, num_simulations;
         push!(std_change_magnitudes, metrics["std_change_magnitude"])
         push!(all_run_details, metrics["iterations"])
         push!(simulation_metrics, metrics)
+        push!(simulation_data, metrics["simulation_data"])
 
         update!(progress, i)
     end
@@ -234,13 +320,15 @@ function simulate_many(pomdp, policy, num_simulations;
         "seed" => seed,
         "simulation_metrics" => simulation_metrics,
         "min_end_time" => simulation_metrics[1]["min_end_time"],
-        "max_end_time" => simulation_metrics[1]["max_end_time"]
+        "max_end_time" => simulation_metrics[1]["max_end_time"],
+        "simulation_data" => simulation_data
     )
 
     return stats
 end
 
 function evaluate_policy(pomdp, policy, num_simulations, output_dir;
+                        replay_data=nothing,
                         fixed_true_end_time=nothing,
                         initial_announce=nothing,
                         seed=nothing,
@@ -251,12 +339,10 @@ function evaluate_policy(pomdp, policy, num_simulations, output_dir;
 
     # Set random seed if provided
     if seed !== nothing
-        println("Setting random seed to $seed")
         Random.seed!(seed)
     else
         # Generate a random seed
         seed = rand(1:10000)
-        println("Using random seed: $seed")
         Random.seed!(seed)
     end
 
@@ -296,7 +382,8 @@ function evaluate_policy(pomdp, policy, num_simulations, output_dir;
         initial_announce=initial_announce,
         collect_beliefs=true, # Always collect beliefs for evaluations
         seed=seed,
-        verbose=verbose
+        verbose=verbose,
+        replay_data=replay_data
     )
 
     # Generate debug plots for each simulation
