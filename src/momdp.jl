@@ -1,4 +1,4 @@
-mutable struct PlanningProblem <: MOMDP{Tuple{Int, Int}, Int, Int, Int, Float64}
+mutable struct PlanningProblem <: MOMDP{Tuple{Int, Int}, Int, Int, Int}
     min_end_time::Int
     max_end_time::Int
     discount_factor::Float64

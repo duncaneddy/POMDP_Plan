@@ -48,13 +48,18 @@ function run_experiment(
         println("Experiment configuration saved to: $config_path")
     end
 
-    # Create POMDP
-    pomdp = define_pomdp(min_end_time, max_end_time, discount_factor, verbose=verbose, initial_announce=initial_announce, fixed_true_end_time=fixed_true_end_time, std_divisor=args["std-divisor"])
+    # Create POMDP and MOMDP problem instance
+    pomdp = define_pomdp(min_end_time, max_end_time, discount_factor, verbose=verbose, initial_announce=initial_announce, fixed_true_end_time=fixed_true_end_time, std_divisor=std_divisor)
+    momdp = define_momdp(min_end_time, max_end_time, discount_factor, initial_announce=initial_announce, std_divisor=std_divisor)
     
     # Generate policies for each solver
     policies = Dict()
     for solver_type in solvers
-        policy_data = get_policy(pomdp, solver_type, experiment_dir, verbose=verbose)
+        if uppercase(solver_type) == "MOMDP_SARSOP"
+            policy_data = get_policy(momdp, solver_type, experiment_dir, verbose=verbose)
+        else
+            policy_data = get_policy(pomdp, solver_type, experiment_dir, verbose=verbose)
+        end
         policies[solver_type] = policy_data["policy"]
     end
     
