@@ -63,7 +63,8 @@ function get_policy(pomdp, solver_type, output_dir;
                     min_end_time::Int=10, 
                     max_end_time::Int=20, 
                     discount_factor::Float64=0.975,
-                    verbose::Bool=false)
+                    verbose::Bool=false,
+                    policy_timeout::Int=300)
 
     if uppercase(solver_type) == "FIB"
         println("Computing policy using FIB solver")
@@ -82,10 +83,10 @@ function get_policy(pomdp, solver_type, output_dir;
         elapsed_time = @elapsed policy = solve(NativeSARSOP.SARSOPSolver(), pomdp)
     elseif uppercase(solver_type) == "CXX_SARSOP"
         println("Computing policy using SARSOP solver")
-        elapsed_time = @elapsed policy = solve(SARSOP.SARSOPSolver(timeout=300, verbose=true), pomdp) # use precision=, timeout= to change exit criterion, policy_interval=300 (seconds)
+        elapsed_time = @elapsed policy = solve(SARSOP.SARSOPSolver(timeout=policy_timeout, verbose=verbose), pomdp) # use precision=, timeout= to change exit criterion, policy_interval=300 (seconds)
     elseif uppercase(solver_type) == "MOMDP_SARSOP"
         println("Computing policy using MOMDP formulation and SARSOP solver")
-        elapsed_time = @elapsed policy = solve(SARSOP.SARSOPSolver(timeout=120, pomdp_filename="planning_momdp.pomdpx", policy_filename="momdp_policy.policy", verbose=true), pomdp) # use precision=, timeout= to change exit criterion, policy_interval=300 (seconds)
+        elapsed_time = @elapsed policy = solve(SARSOP.SARSOPSolver(timeout=policy_timeout, pomdp_filename="planning_momdp.pomdpx", policy_filename="momdp_policy.policy", verbose=verbose), pomdp) # use precision=, timeout= to change exit criterion, policy_interval=300 (seconds)
     elseif uppercase(solver_type) == "POMCP"
         println("Computing policy using POMCP solver")
         elapsed_time = @elapsed policy = solve(POMCPSolver(tree_queries=10_000, max_depth=max_end_time), pomdp)

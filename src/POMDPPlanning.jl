@@ -105,6 +105,10 @@ function parse_commandline()
         "--replay-data", "-z"
             help = "Path to an evaluation_results.json file to replay simulation data for reproduction"
             arg_type = String
+        "--policy-timeout"
+            help = "Timeout for policy generation in seconds (default is 300 seconds)"
+            arg_type = Int
+            default = 300
         "command"
             help = "Command to execute (solve or evaluate)"
             required = true
@@ -207,7 +211,8 @@ function main()
                 pomdp,
                 solver,
                 args["output-dir"],
-                verbose=args["verbose"]
+                verbose=args["verbose"],
+                policy_timeout=args["policy-timeout"]
             )
         end
 
@@ -268,7 +273,8 @@ function main()
                 pomdp,
                 solver,
                 args["output-dir"],
-                verbose=args["verbose"]
+                verbose=args["verbose"],
+                policy_timeout=args["policy-timeout"]
             )
             
             policy = policy_output["policy"]
