@@ -2,6 +2,8 @@
 
 # Script to run all experiments for the paper
 
+include("analyze_paper_results.jl")
+
 using Pkg
 push!(LOAD_PATH, dirname(dirname(@__FILE__)))
 
@@ -53,11 +55,6 @@ function main()
     println("Experiments complete!")
     println("Results saved to: $experiment_dir")
     println("="^60)
-    
-    # Automatically run analysis
-    println("\nRunning analysis...")
-    include("analyze_paper_results.jl")
-    analyze_results(experiment_dir)
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__

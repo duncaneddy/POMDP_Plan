@@ -165,24 +165,60 @@ function run_paper_experiments(
 end
 
 """
-Save results to JSON, excluding belief histories to keep file size manageable.
-Belief histories are saved separately if needed.
+Recursively clean data structure to remove non-JSON-serializable objects.
 """
-function save_results_to_json(results::Dict, filepath::String)
-    # Deep copy to avoid modifying original
-    save_data = deepcopy(results)
-    
-    # Remove belief histories from each simulation
-    for (solver, solver_results) in save_data
-        if haskey(solver_results, "simulation_metrics")
-            for metrics in solver_results["simulation_metrics"]
-                delete!(metrics, "belief_history")
+function clean_for_json(obj)
+    if obj isa Dict
+        cleaned = Dict()
+        for (key, value) in obj
+            # Skip known problematic keys
+            if key in ["policy", "pomdp", "momdp", "belief_history", "belief", 
+                      "updater", "rng", "policy_object"]
+                continue
+            end
+            
+            cleaned_value = clean_for_json(value)
+            if cleaned_value !== nothing
+                cleaned[string(key)] = cleaned_value
             end
         end
+        return cleaned
+        
+    elseif obj isa Array || obj isa Vector
+        cleaned = []
+        for item in obj
+            cleaned_item = clean_for_json(item)
+            if cleaned_item !== nothing
+                push!(cleaned, cleaned_item)
+            end
+        end
+        return cleaned
+        
+    elseif obj isa Tuple
+        # Convert tuples to arrays for JSON compatibility
+        return clean_for_json(collect(obj))
+        
+    elseif obj isa Number || obj isa String || obj isa Bool || obj === nothing
+        return obj
+        
+    elseif obj isa Symbol
+        return string(obj)
+        
+    else
+        # Skip non-serializable objects (functions, policies, etc.)
+        return nothing
     end
+end
+
+"""
+Save results to JSON, excluding belief histories and other non-serializable objects.
+"""
+function save_results_to_json(results::Dict, filepath::String)
+    # Clean the data structure for JSON serialization
+    cleaned_data = clean_for_json(results)
     
     open(filepath, "w") do f
-        JSON.print(f, save_data, 4)
+        JSON.print(f, cleaned_data, 4)
     end
     
     println("Results saved to: $filepath")
@@ -260,11 +296,6 @@ function load_problem_configs(reference_dir::String="reference_problems")
             "filename" => "std_div_3/problems_l_1_u_26_n_1000_s_42.json", 
             "min_end_time" => 1,
             "max_end_time" => 26
-        ),
-        "large" => Dict(
-            "filename" => "std_div_3/problems_l_1_u_52_n_1000.json",
-            "min_end_time" => 1,
-            "max_end_time" => 52
         )
     )
     
