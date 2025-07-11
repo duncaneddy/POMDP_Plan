@@ -27,3 +27,4 @@ scripts/*.png
 *.pomdpx
 *.jld2
 digest.txt
+paper_results/*

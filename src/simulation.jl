@@ -188,7 +188,15 @@ function simulate_single(pomdp, policy;
         push!(iteration_details, iteration_detail)
 
         # Update Belief and state
-        bp = update(updater, b, a, o)
+        bp = nothing
+        try
+            bp = update(updater, b, a, o)
+        catch
+            if verbose
+                println("Error updating belief.")
+            end
+            return nothing
+        end
 
         b = deepcopy(bp)
         s = deepcopy(sp)
@@ -293,6 +301,15 @@ function simulate_many(pomdp, policy, num_simulations;
         sim_replay = nothing
         if replay_data !== nothing
             sim_replay = replay_data[i]
+
+            # Check that the end time is not 1 
+            # If it is skip it
+            if sim_replay["initial_state"][3] == 1
+                if verbose
+                    println("Skipping simulation $i due to initial state end time of 1")
+                end
+                continue
+            end
         end
 
         # Sample a random integer seed for this run to make them reproducible
@@ -310,6 +327,13 @@ function simulate_many(pomdp, policy, num_simulations;
             replay_data=sim_replay,
             seed=run_seed
         )
+
+        if metrics === nothing
+            if verbose
+                println("Simulation $i failed, skipping...")
+            end
+            continue
+        end
 
         # Store metrics from this run
         push!(rewards, metrics["total_reward"])

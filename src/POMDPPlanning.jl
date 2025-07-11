@@ -43,6 +43,7 @@ include("solvers.jl")
 include("simulation.jl")
 include("analysis.jl")
 include("experiments.jl")
+include("experiments_paper.jl")
 
 
 function parse_commandline()
