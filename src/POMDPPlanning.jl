@@ -84,6 +84,9 @@ function parse_commandline()
         "--verbose", "-v"
             help = "Enable verbose output"
             nargs = 0
+        "--no-plot"
+            help = "Disable plotting of results"
+            nargs = 0
         "--debug", "-D"
             help = "Enable debug output"
             nargs = 0
@@ -359,6 +362,7 @@ function main()
             initial_announce=args["initial-announce"],
             seed=args["seed"],  # Add this line
             verbose=args["verbose"],
+            debug=args["debug"],
             solver=args["solvers"],  # Pass the solver type for metadata
             replay_data=replay_data  # Pass the replay data if provided
         )

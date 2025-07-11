@@ -3,6 +3,7 @@ function simulate_single(pomdp, policy;
                         initial_announce=nothing,
                         collect_beliefs=true,
                         verbose=false,
+                        debug=false,
                         seed=nothing,
                         replay_data=nothing)
     is_momdp = isa(pomdp, PlanningProblem)
@@ -106,21 +107,16 @@ function simulate_single(pomdp, policy;
                 o = Tuple(replay_data["observations"][step])
             end
         end
-        if verbose
-            println("Step: $step, state: $s, action: $a, observation: $o")
+        if debug
+            if is_momdp
+                println("Step: $step, state: $s, action: $a, observation: $o")
+            else
+                println("Step: $step, state: $s, action: $(a.announced_time), observation $o")
+            end
         end
 
         # Save observation for reproduction
         push!(simulation_data["observations"], o)
-
-        # Update Belief and state
-        bp = update(updater, b, a, o)
-
-        b = deepcopy(bp)
-        s = deepcopy(sp)
-
-        # Process update
-        r_sum += r # * pomdp.discount_factor^step
 
         if is_momdp
             t, Ta = s[1]
@@ -135,7 +131,7 @@ function simulate_single(pomdp, policy;
         end
 
         # Record first announced time
-        if step == 1
+        if step == 2
             first_announced = Ta
         end
 
@@ -148,11 +144,14 @@ function simulate_single(pomdp, policy;
             obs = o[3]
         end
 
-        if step > 1 && Ta != a
+        if step > 2 && Ta != a_value
+            if debug
+                println("Announcement change detected at step $step: Previous Announced Time: $Ta, Action: $a_value, Change Magnitude: $(a_value - Ta)")
+            end
             push!(announcement_changes, (t, Ta, a_value, a_value - Ta))
         end
 
-        if verbose
+        if debug
             println("Timestep: ", t)
             println("True End Time: ", Tt)
             println("Previous Announced Time: ", Ta)
@@ -174,7 +173,7 @@ function simulate_single(pomdp, policy;
 
         # Save detailed metrics for this step
         iteration_detail = Dict(
-            "timestep" => t - 1,
+            "timestep" => t,
             "Tt" => Tt,
             "Ta_prev" => Ta,
             "To_prev" => obs_old,
@@ -188,10 +187,19 @@ function simulate_single(pomdp, policy;
         )
         push!(iteration_details, iteration_detail)
 
+        # Update Belief and state
+        bp = update(updater, b, a, o)
+
+        b = deepcopy(bp)
+        s = deepcopy(sp)
+
+        # Process update
+        r_sum += r # * pomdp.discount_factor^step
+
         obs_old = obs
-        if t == Tt
+        if s[1] == Tt
             if verbose
-                println("Project complete!")
+                println("Simulation complete!")
             end
             break
         end
@@ -245,6 +253,7 @@ function simulate_many(pomdp, policy, num_simulations;
                     collect_beliefs=false,
                     seed=nothing,
                     verbose=false,
+                    debug=false,
                     replay_data=nothing)
 
     # Set random seed if provided
@@ -296,7 +305,8 @@ function simulate_many(pomdp, policy, num_simulations;
             fixed_true_end_time=fixed_true_end_time,
             initial_announce=initial_announce,
             collect_beliefs=collect_beliefs,
-            verbose=(verbose && i == 1), # Only show verbose output for first simulation
+            verbose=verbose,
+            debug=debug,
             replay_data=sim_replay,
             seed=run_seed
         )
@@ -343,7 +353,9 @@ function evaluate_policy(pomdp, policy, num_simulations, output_dir;
                         initial_announce=nothing,
                         seed=nothing,
                         verbose=false,
-                        solver="UnknownSolver")
+                        debug=false,
+                        solver="UnknownSolver",
+                        no_plot=false)
 
     println("Evaluating policy for $num_simulations simulation(s)")
 
@@ -393,6 +405,7 @@ function evaluate_policy(pomdp, policy, num_simulations, output_dir;
         collect_beliefs=true, # Always collect beliefs for evaluations
         seed=seed,
         verbose=verbose,
+        debug=debug,
         replay_data=replay_data
     )
 
@@ -402,30 +415,32 @@ function evaluate_policy(pomdp, policy, num_simulations, output_dir;
         mkpath(plots_base_dir)
     end
 
-    println("Generating debug plots for each simulation...")
-    progress = Progress(num_simulations, desc="Creating plots...")
+    if !no_plot
+        println("Generating debug plots for each simulation...")
+        progress = Progress(num_simulations, desc="Creating plots...")
 
-    for i in 1:num_simulations
-        sim_metrics = stats["simulation_metrics"][i]
-        sim_dir = joinpath(plots_base_dir, "simulation_$(lpad(i, 3, '0'))")
+        for i in 1:num_simulations
+            sim_metrics = stats["simulation_metrics"][i]
+            sim_dir = joinpath(plots_base_dir, "simulation_$(lpad(i, 3, '0'))")
 
-        if !isdir(sim_dir)
-            mkpath(sim_dir)
+            if !isdir(sim_dir)
+                mkpath(sim_dir)
+            end
+
+            # Create debug plots for this simulation
+            create_debug_plots(
+                pomdp,
+                sim_metrics["iterations"],
+                sim_metrics["min_end_time"],
+                sim_metrics["max_end_time"],
+                sim_dir,
+                belief_history=sim_metrics["belief_history"],
+                plot_beliefs=true,
+                plot_observations=true
+            )
+
+            update!(progress, i)
         end
-
-        # Create debug plots for this simulation
-        create_debug_plots(
-            pomdp,
-            sim_metrics["iterations"],
-            sim_metrics["min_end_time"],
-            sim_metrics["max_end_time"],
-            sim_dir,
-            belief_history=sim_metrics["belief_history"],
-            plot_beliefs=true,
-            plot_observations=true
-        )
-
-        update!(progress, i)
     end
 
     # Save aggregated evaluation results
