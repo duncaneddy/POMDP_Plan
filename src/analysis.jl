@@ -336,12 +336,14 @@ function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, m
         Plots.Plot object containing the heatmap
     """
     
-    if belief_history === nothing || isempty(belief_history)
+    if belief_history === nothing || isempty(belief_history) || length(belief_history) <= 1
         @warn "No belief history available for 2D belief evolution plot"
         return nothing
     end
     
-    num_timesteps = length(belief_history)
+    # Skip the first timestep
+    belief_history_subset = belief_history[2:end]
+    num_timesteps = length(belief_history_subset)
     possible_end_times = collect(min_end_time:max_end_time)
     num_end_times = length(possible_end_times)
     
@@ -349,7 +351,7 @@ function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, m
     prob_matrix = zeros(Float64, num_end_times, num_timesteps)
     
     # Fill the probability matrix
-    for (timestep_idx, belief) in enumerate(belief_history)
+    for (timestep_idx, belief) in enumerate(belief_history_subset)
         states, probs = extract_belief_states_and_probs(belief)
         
         # Aggregate probabilities by true end time (Tt)
@@ -370,8 +372,8 @@ function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, m
         end
     end
     
-    # Create timestep labels (starting from 0)
-    timestep_labels = collect(0:(num_timesteps-1))
+    # Create timestep labels (starting from 1, since we skip timestep 0)
+    timestep_labels = collect(1:num_timesteps)
     
     # Create the heatmap
     p = heatmap(
@@ -398,7 +400,7 @@ function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, m
 
     # Ensure proper tick spacing for readability
     plot!(
-        xticks = (0:2:maximum(timestep_labels), 0:2:maximum(timestep_labels)),
+        xticks = (1:2:maximum(timestep_labels), 1:2:maximum(timestep_labels)),
         yticks = (min_end_time:2:max_end_time, min_end_time:2:max_end_time)
     )
     
@@ -417,9 +419,10 @@ function plot_2d_belief_evolution_with_actions(belief_history, run_details, true
         return nothing
     end
     
-    # Extract timesteps and announced times from run details
-    timesteps = [step["timestep"] for step in run_details]
-    announced_times = [step["action"] for step in run_details]
+    # Extract timesteps and announced times from run details, skipping the first timestep
+    run_details_subset = run_details[2:end]
+    timesteps = [step["timestep"] for step in run_details_subset]
+    announced_times = [step["action"] for step in run_details_subset]
     
     # Overlay the announced time trajectory
     plot!(p,
@@ -435,8 +438,8 @@ function plot_2d_belief_evolution_with_actions(belief_history, run_details, true
     )
     
     # Also overlay observations if available
-    if haskey(run_details[1], "To")
-        observations = [step["To"] for step in run_details]
+    if haskey(run_details_subset[1], "To")
+        observations = [step["To"] for step in run_details_subset]
         scatter!(p,
             timesteps,
             observations,
