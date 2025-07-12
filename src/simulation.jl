@@ -293,7 +293,7 @@ function simulate_many(pomdp, policy, num_simulations;
     progress = Progress(num_simulations, desc="Running simulations...")
 
     for i in 1:num_simulations
-        if verbose && i % 10 == 0
+        if debug && i % 10 == 0
             println("Simulation $i of $num_simulations")
         end
 
