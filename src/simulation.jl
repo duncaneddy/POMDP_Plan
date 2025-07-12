@@ -104,7 +104,14 @@ function simulate_single(pomdp, policy;
             if is_momdp
                 o = replay_data["observations"][step][3] # Only use the True Time part as the observation for the MOMDP
             else
-                o = Tuple(replay_data["observations"][step])
+                saved_obs = replay_data["observations"][step]
+                if isa(saved_obs, Array)
+                    saved_obs = Tuple(saved_obs)
+                end
+                # Extract the observed time (To) from saved observation, but use current state's t and Ta
+                t_curr, Ta_curr, Tt_curr = sp
+                To_saved = saved_obs[3]  # Keep the observed time from replay data
+                o = (t_curr, Ta_curr, To_saved)  # Construct observation with current state's t and Ta
             end
         end
         if debug
