@@ -10,13 +10,10 @@ push!(LOAD_PATH, dirname(dirname(@__FILE__)))
 using POMDPPlanning
 
 # Configuration
-# SOLVERS = ["OBSERVEDTIME", "MOSTLIKELY", "QMDP", "CXX_SARSOP", "MOMDP_SARSOP"]
-# SOLVERS = ["QMDP"]
-SOLVERS = ["MOMDP_SARSOP"]
-# SOLVERS = ["OBSERVEDTIME", "MOSTLIKELY", "MOMDP_SARSOP"]
-POLICY_TIMEOUT = 30
-NUM_SIMULATIONS = 20  # Number of simulations per solver/problem
-NUM_DETAILED_PLOTS = 5  # Number of runs to save detailed belief plots for
+SOLVERS = ["OBSERVEDTIME", "MOSTLIKELY", "QMDP", "CXX_SARSOP", "MOMDP_SARSOP"]
+POLICY_TIMEOUT = 60*30  # 30 minutes for policy computation
+NUM_SIMULATIONS = 1000  # Number of simulations per solver/problem
+NUM_DETAILED_PLOTS = 25  # Number of runs to save detailed belief plots for
 OUTPUT_DIR = "paper_results"
 SEED = 42  # For reproducibility
 VERBOSE = true  # Set to false for less output
@@ -39,31 +36,11 @@ function load_problem_configs(reference_dir::String="reference_problems")
             "min_end_time" => 2,
             "max_end_time" => 26
         ),
-        # "large" => Dict(
-        #     "filename" => "std_div_3/qmdp_base_l_2_u_52_n_1000.json", 
-        #     "min_end_time" => 2,
-        #     "max_end_time" => 52
-        # )
-        # "medium" => Dict(
-        #     "filename" => "../results/evaluation_2025-07-12_01-11-56/evaluation_results.json", 
-        #     "min_end_time" => 2,
-        #     "max_end_time" => 12
-        # )
-        # "small" => Dict(
-        #     "filename" => "std_div_3/problems_l_1_u_12_n_1000_s_42.json",
-        #     "min_end_time" => 1,
-        #     "max_end_time" => 12
-        # ),
-        # "medium" => Dict(
-        #     "filename" => "std_div_3/problems_l_1_u_26_n_1000_s_42.json", 
-        #     "min_end_time" => 1,
-        #     "max_end_time" => 26
-        # ),
-        # "medium" => Dict(
-        #     "filename" => "std_div_3/problems_l_1_u_52_n_1000.json", 
-        #     "min_end_time" => 1,
-        #     "max_end_time" => 26
-        # )
+        "large" => Dict(
+            "filename" => "std_div_3/qmdp_base_l_2_u_52_n_1000.json", 
+            "min_end_time" => 2,
+            "max_end_time" => 52
+        )
     )
     
     for (size_name, size_def) in problem_definitions
