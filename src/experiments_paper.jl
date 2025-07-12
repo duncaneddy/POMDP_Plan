@@ -117,7 +117,7 @@ function run_paper_experiments(
             
             # Run all simulations
             sim_results = simulate_many(
-                problem,
+                deepcopy(problem),
                 policies[solver_type],
                 num_simulations,
                 collect_beliefs=true,  # Collect beliefs for detailed plots

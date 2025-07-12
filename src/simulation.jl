@@ -7,11 +7,11 @@ function simulate_single(pomdp, policy;
                         seed=nothing,
                         replay_data=nothing)
     is_momdp = isa(pomdp, PlanningProblem)
-    if verbose
+    if debug
         println("Running simulation with $(is_momdp ? "MOMDP" : "POMDP") formulation")
     end
     if replay_data !== nothing
-        if verbose
+        if debug
             println("Using provided replay data for simulation.")
         end
     end
@@ -57,7 +57,7 @@ function simulate_single(pomdp, policy;
     else
         rng = MersenneTwister(seed)
     end
-    if verbose
+    if debug
         println("Using random seed: $seed")
     end
 
@@ -77,7 +77,7 @@ function simulate_single(pomdp, policy;
             s = Tuple(replay_data["initial_state"])
         end
     end
-    if verbose
+    if debug
         println("Using initial state: $s")
     end
 
@@ -206,7 +206,7 @@ function simulate_single(pomdp, policy;
 
         obs_old = obs
         if s[1] == Tt
-            if verbose
+            if debug
                 println("Simulation complete!")
             end
             break

@@ -10,6 +10,32 @@ The experiment pipeline consists of two main stages:
 
 ## Quick Start
 
+First Generate Experiments. The data in `reference_problems/std_div_3` was generated with the following commands .
+
+Note that for the `-l 2 -u 52` "large" problems they were generated over multiple runs to fit into the memory of the machines (a 512 GB server). You could do it on smaller machines, but you might need to further split the runs into smaller chunks.
+
+```bash
+## Generate Data
+
+# Small
+julia --project bin/cli.jl evaluate -r 42 --solvers QMDP -n 1000 -l 2 -u 12 --no-plot
+
+# Medium
+julia --project bin/cli.jl evaluate -r 42 --solvers QMDP -n 1000 -l 2 -u 26 --no-plot
+
+# Large
+julia --project bin/cli.jl evaluate -r 42 --solvers QMDP -n 250 -l 2 -u 52 --no-plot
+julia --project bin/cli.jl evaluate -r 43 --solvers QMDP -n 250 -l 2 -u 52 --no-plot
+julia --project bin/cli.jl evaluate -r 44 --solvers QMDP -n 250 -l 2 -u 52 --no-plot
+julia --project bin/cli.jl evaluate -r 45 --solvers QMDP -n 250 -l 2 -u 52 --no-plot
+
+## Merge Data to create smaller output files to commit
+
+julia --project scripts/merge_simulation_data.jl ./results/std_dev_3_qmdp_l_2_u_12_n_1000_s42/evaluation_results.json -o qmdp_base_l_2_u_12_n_1000.json
+julia --project scripts/merge_simulation_data.jl ./results/std_dev_3_qmdp_l_2_u_26_n_1000_s42/evaluation_results.json -o qmdp_base_l_2_u_26_n_1000.json
+julia --project scripts/merge_simulation_data.jl -o qmdp_base_l_2_u_52_n_1000 ./results/std_dev_3_qmdp_l_2_u_52_n_250_s42/evaluation_results.json ./results/std_dev_3_qmdp_l_2_u_52_n_250_s43/evaluation_results.json ./results/std_dev_3_qmdp_l_2_u_52_n_250_s44/evaluation_results.json ./results/std_dev_3_qmdp_l_2_u_52_n_250_s45/evaluation_results.json
+```
+
 ```bash
 # Run all experiments (this will take some time)
 julia --project scripts/run_paper_experiments.jl
