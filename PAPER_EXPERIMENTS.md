@@ -41,7 +41,7 @@ julia --project scripts/merge_simulation_data.jl -o qmdp_base_l_2_u_52_n_1000 ./
 julia --project scripts/run_paper_experiments.jl
 
 # Analyze results (Passing in the experiment directory displayed above))
-julia --project scripts/analyze_paper_results.jl path/to/experiment_directory
+julia --project scripts/analyze_paper_results.jl PATH/TO/EXPERIMENT/DIRECTORY/
 
 ```
 
@@ -59,9 +59,9 @@ The main experiment script compares 5 solvers across 3 problem sizes:
 - `MOMDP_SARSOP`: SARSOP solver using MOMDP formulation
 
 **Problem Sizes:**
-- Small: 1-12 timesteps
-- Medium: 1-26 timesteps  
-- Large: 1-52 timesteps
+- Small: 2-12 timesteps
+- Medium: 2-26 timesteps  
+- Large: 2-52 timesteps
 
 To run experiments with custom settings:
 
@@ -162,28 +162,23 @@ paper_results/
 ## Customization
 
 ### Changing Timeout
+
 Edit `POLICY_TIMEOUT` in `scripts/run_paper_experiments.jl`:
 ```julia
 POLICY_TIMEOUT = 600  # 10 minutes instead of 5
 ```
 
 ### Changing Number of Simulations
+
 Edit `NUM_SIMULATIONS` in `scripts/run_paper_experiments.jl`:
 ```julia
 NUM_SIMULATIONS = 200  # More simulations for smoother statistics
 ```
 
 ### Adding New Metrics
+
 Modify `generate_statistics_table()` in `scripts/analyze_paper_results.jl` to compute additional metrics from the raw simulation data.
 
 ## Reproducing Results
 
-All experiments use fixed random seeds for reproducibility. The seed is saved in `experiment_config.json` and can be reused to reproduce exact results.
-
-## Tips
-
-1. **Start Small**: Test with fewer simulations first to ensure everything works
-2. **Monitor Progress**: The scripts show progress bars during execution
-3. **Check Logs**: Verbose output includes policy generation times and convergence info
-4. **Parallel Runs**: Consider running different problem sizes in parallel terminals
-5. **Storage**: Full experiments generate ~1-2GB of data including plots
+All experiments use fixed random seeds from previous experiment runs for reproducibility.
