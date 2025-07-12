@@ -85,7 +85,7 @@ function parse_commandline()
         "--verbose", "-v"
             help = "Enable verbose output"
             nargs = 0
-        "--no-plot"
+        "--no-plot", "-P"
             help = "Disable plotting of results"
             nargs = 0
         "--debug", "-D"
@@ -365,7 +365,8 @@ function main()
             verbose=args["verbose"],
             debug=args["debug"],
             solver=args["solvers"],  # Pass the solver type for metadata
-            replay_data=replay_data  # Pass the replay data if provided
+            replay_data=replay_data,  # Pass the replay data if provided
+            no_plot=args["no-plot"]
         )
 
     elseif args["command"] == "experiments"

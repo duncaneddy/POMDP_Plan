@@ -279,38 +279,3 @@ function generate_detailed_belief_plots(
     end
 end
 
-"""
-Load problem size configurations from reference problems.
-"""
-function load_problem_configs(reference_dir::String="reference_problems")
-    configs = Dict{String, Dict{String, Any}}()
-    
-    # Define problem sizes
-    problem_definitions = Dict(
-        "small" => Dict(
-            "filename" => "std_div_3/problems_l_1_u_12_n_1000_s_42.json",
-            "min_end_time" => 1,
-            "max_end_time" => 12
-        ),
-        "medium" => Dict(
-            "filename" => "std_div_3/problems_l_1_u_26_n_1000_s_42.json", 
-            "min_end_time" => 1,
-            "max_end_time" => 26
-        )
-    )
-    
-    for (size_name, size_def) in problem_definitions
-        filepath = joinpath(reference_dir, size_def["filename"])
-        if !isfile(filepath)
-            error("Reference file not found: $filepath")
-        end
-        
-        configs[size_name] = Dict(
-            "replay_data_path" => filepath,
-            "min_end_time" => size_def["min_end_time"],
-            "max_end_time" => size_def["max_end_time"]
-        )
-    end
-    
-    return configs
-end

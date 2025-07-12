@@ -439,7 +439,7 @@ function evaluate_policy(pomdp, policy, num_simulations, output_dir;
         mkpath(plots_base_dir)
     end
 
-    if !no_plot
+    if no_plot == false
         println("Generating debug plots for each simulation...")
         progress = Progress(num_simulations, desc="Creating plots...")
 
@@ -501,7 +501,9 @@ function evaluate_policy(pomdp, policy, num_simulations, output_dir;
         mkpath(summary_plots_dir)
     end
 
-    create_evaluation_plots(stats, summary_plots_dir)
+    if no_plot == false
+        create_evaluation_plots(stats, summary_plots_dir)
+    end
 
     return stats
 end

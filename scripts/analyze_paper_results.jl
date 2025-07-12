@@ -18,7 +18,7 @@ using CSV
 """
 Main analysis function that generates all plots and tables from experiment results.
 """
-function analyze_results(experiment_dir::String; output_dir::String=nothing)
+function analyze_results(experiment_dir::String; output_dir::Union{String, Nothing}=nothing)
     # Use experiment directory for output if not specified
     if output_dir === nothing
         output_dir = joinpath(experiment_dir, "analysis")
@@ -106,7 +106,7 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
             fillalpha = 0.8
         )
         
-        savefig(p, joinpath(output_dir, "reward_comparison_$(size).png"))
+        Plots.savefig(p, joinpath(output_dir, "reward_comparison_$(size).png"))
     end
     
     # Combined plot across all problem sizes
@@ -140,7 +140,7 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
         legend = :bottomleft
     )
     
-    savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.png"))
+    Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.png"))
 end
 
 """
@@ -157,7 +157,7 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
         for solver in solvers
             rewards = results[size][solver]["rewards"]
             
-            p = histogram(
+            p = Plots.histogram(
                 rewards,
                 bins = 20,
                 title = "Reward Distribution - $solver ($size)",
@@ -172,13 +172,13 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
             vline!([mean(rewards)], label = "Mean", linewidth = 2, color = :red)
             vline!([median(rewards)], label = "Median", linewidth = 2, color = :green, linestyle = :dash)
             
-            savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).png"))
+            Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).png"))
         end
     end
     
     # Combined histograms by problem size
     for size in problem_sizes
-        p = plot(
+        p = Plots.plot(
             title = "Reward Distributions - $size Problem",
             xlabel = "Total Reward",
             ylabel = "Frequency",
@@ -187,7 +187,7 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
         
         for (i, solver) in enumerate(solvers)
             rewards = results[size][solver]["rewards"]
-            histogram!(
+            Plots.histogram!(
                 p,
                 rewards,
                 bins = 20,
@@ -197,12 +197,12 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
             )
         end
         
-        savefig(p, joinpath(hist_dir, "hist_$(size)_combined.png"))
+        Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.png"))
     end
     
     # Combined histogram across all problem sizes for each solver
     for solver in solvers
-        p = plot(
+        p = Plots.plot(
             title = "Reward Distributions - $solver",
             xlabel = "Total Reward", 
             ylabel = "Frequency",
@@ -211,7 +211,7 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
         
         for (i, size) in enumerate(problem_sizes)
             rewards = results[size][solver]["rewards"]
-            histogram!(
+            Plots.histogram!(
                 p,
                 rewards,
                 bins = 20,
@@ -221,7 +221,7 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
             )
         end
         
-        savefig(p, joinpath(hist_dir, "hist_$(solver)_all_sizes.png"))
+        Plots.savefig(p, joinpath(hist_dir, "hist_$(solver)_all_sizes.png"))
     end
 end
 
@@ -346,7 +346,7 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
     mkpath(stats_plot_dir)
     
     # Plot average number of changes
-    p1 = plot(title = "Average Number of Announcement Changes",
+    p1 = Plots.plot(title = "Average Number of Announcement Changes",
               xlabel = "Problem Size", 
               ylabel = "Average Changes",
               size = (800, 600))
@@ -362,10 +362,10 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
               linewidth = 2)
     end
     
-    savefig(p1, joinpath(stats_plot_dir, "avg_announcement_changes.png"))
+    Plots.savefig(p1, joinpath(stats_plot_dir, "avg_announcement_changes.png"))
     
     # Plot average final error
-    p2 = plot(title = "Average Final Error",
+    p2 = Plots.plot(title = "Average Final Error",
               xlabel = "Problem Size",
               ylabel = "Average Error", 
               size = (800, 600))
@@ -381,10 +381,10 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
               linewidth = 2)
     end
     
-    savefig(p2, joinpath(stats_plot_dir, "avg_final_error.png"))
+    Plots.savefig(p2, joinpath(stats_plot_dir, "avg_final_error.png"))
     
     # Plot percentage of incorrect final predictions
-    p3 = plot(title = "Percentage of Incorrect Final Predictions",
+    p3 = Plots.plot(title = "Percentage of Incorrect Final Predictions",
               xlabel = "Problem Size",
               ylabel = "Incorrect (%)",
               size = (800, 600))
@@ -400,7 +400,7 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
               linewidth = 2)
     end
     
-    savefig(p3, joinpath(stats_plot_dir, "incorrect_predictions.png"))
+    Plots.savefig(p3, joinpath(stats_plot_dir, "incorrect_predictions.png"))
 end
 
 """
@@ -413,10 +413,10 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
     mkpath(combined_dir)
     
     # Create a 2x2 subplot of key metrics
-    p1 = plot(title = "Mean Reward", legend = :bottomleft)
-    p2 = plot(title = "Final Error Rate", legend = :topright)  
-    p3 = plot(title = "Announcement Changes", legend = :topright)
-    p4 = plot(title = "Policy Generation Time", legend = :topright, yscale = :log10)
+    p1 = Plots.plot(title = "Mean Reward", legend = :bottomleft)
+    p2 = Plots.plot(title = "Final Error Rate", legend = :topright)  
+    p3 = Plots.plot(title = "Announcement Changes", legend = :topright)
+    p4 = Plots.plot(title = "Policy Generation Time", legend = :topright, yscale = :log10)
     
     for solver in solvers
         # Collect data across problem sizes
@@ -457,8 +457,8 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
     xlabel!(p4, "Problem Size")
     ylabel!(p4, "Time (seconds)")
     
-    combined = plot(p1, p2, p3, p4, layout = (2, 2), size = (1200, 900))
-    savefig(combined, joinpath(combined_dir, "key_metrics_comparison.png"))
+    combined = Plots.plot(p1, p2, p3, p4, layout = (2, 2), size = (1200, 900))
+    Plots.savefig(combined, joinpath(combined_dir, "key_metrics_comparison.png"))
 end
 
 # Main execution

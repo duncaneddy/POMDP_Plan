@@ -12,9 +12,11 @@ The experiment pipeline consists of two main stages:
 
 ```bash
 # Run all experiments (this will take some time)
-julia scripts/run_paper_experiments.jl
+julia --project scripts/run_paper_experiments.jl
 
-# The script will automatically analyze results after experiments complete
+# Analyze results (Passing in the experiment directory displayed above))
+julia --project scripts/analyze_paper_results.jl path/to/experiment_directory
+
 ```
 
 ## Detailed Usage
