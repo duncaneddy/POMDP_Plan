@@ -49,7 +49,11 @@ function simulate_single(pomdp, policy;
         # Use PreviousObservationUpdater for ObservedTimePolicy
         updater = PreviousObservationUpdater()
     else
-        updater = DiscreteUpdater(pomdp)
+        if is_momdp
+            updater = MOMDPDiscreteUpdater(pomdp)
+        else
+            updater = DiscreteUpdater(pomdp)
+        end
     end
 
     if replay_data !== nothing
@@ -60,12 +64,16 @@ function simulate_single(pomdp, policy;
     if debug
         println("Using random seed: $seed")
     end
-
+ 
     # Get initial state for rollout
     initial_state_distribution = initialstate(pomdp)
 
     # Set initial belief to just be a uniform belief over initial states
-    b = initialize_belief(updater, initial_state_distribution)
+    if is_momdp
+        b = initialize_belief(updater, initialstate_y(pomdp, (0, min_end_time)))
+    else
+        b = initialize_belief(updater, initial_state_distribution)
+    end
     
     # Sample initial state
     if replay_data === nothing
@@ -92,7 +100,11 @@ function simulate_single(pomdp, policy;
         step += 1
 
         # Manually perform simulation update
-        a = action(policy, b)
+        if is_momdp
+            a = action(policy, b, s[1])
+        else
+            a = action(policy, b)
+        end
         (sp, r) = @gen(:sp, :r)(pomdp, s, a, rng)
 
         # Generate Observation from distribution
@@ -172,7 +184,7 @@ function simulate_single(pomdp, policy;
         end
 
         if is_momdp
-            believed_Tt = highest_belief_state(b)[2]
+            believed_Tt = highest_belief_state(b)
         else
             believed_Tt = highest_belief_state(b)[3]
         end
@@ -197,7 +209,13 @@ function simulate_single(pomdp, policy;
         # Update Belief and state
         bp = nothing
         try
-            bp = update(updater, b, a, o)
+            if is_momdp
+                # For MOMDP, we use the MOMDPDiscreteUpdater
+                bp = update(updater, b, a, o, s[1], sp[1])
+            else
+                # For POMDP, we use the DiscreteUpdater
+                bp = update(updater, b, a, o)
+            end
         catch
             if verbose
                 println("Error updating belief.")

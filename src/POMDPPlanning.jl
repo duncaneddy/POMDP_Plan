@@ -77,7 +77,7 @@ function parse_commandline()
         "--discount", "-d"
             help = "Discount factor for the POMDP"
             arg_type = Float64
-            default = 0.98 # Keep fairly high since this is actually a finite horizon problem
+            default = 0.95 # Keep fairly high since this is actually a finite horizon problem
         "--std-divisor", "-i"
             help = "Standard deviation divisor for the noise in the true end time observation (default is 3.0)"
             arg_type = Float64

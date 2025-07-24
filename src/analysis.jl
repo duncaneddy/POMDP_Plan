@@ -64,7 +64,7 @@ function plot_belief_distribution(belief, true_end_time, min_end_time, max_end_t
     # Aggregate probabilities by end time (may have multiple states with same end time)
     for (state, prob) in zip(states, probs)
         if is_momdp == true
-            Tt = state[2]  # Extract true end time from state tuple
+            Tt = state  # Extract true end time from state tuple
         else
             # For standard POMDP, state is a tuple (t, Ta, Tt)
             Tt = state[3]
@@ -356,7 +356,7 @@ function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, m
         end_time_probs = Dict{Int, Float64}()
         for (state, prob) in zip(states, probs)
             if is_momdp
-                Tt = state[2]  # Extract true end time from state tuple
+                Tt = state  # Extract true end time from state tuple
             else
                 # For standard POMDP, state is a tuple (t, Ta, Tt)
                 Tt = state[3]
