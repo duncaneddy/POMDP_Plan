@@ -31,6 +31,7 @@ using JSON
 using Statistics
 using ProgressMeter
 using Dates
+using FileIO
 
 const VERSION = string(PkgVersion.@Version)
 

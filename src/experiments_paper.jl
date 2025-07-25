@@ -1,6 +1,6 @@
 """
 Run comprehensive experiments for paper comparison across problem sizes and solvers.
-Saves all raw data for later processing.
+Saves results incrementally to prevent memory growth.
 """
 function run_paper_experiments(
     problem_sizes::Dict{String, Dict{String, Any}},
@@ -12,7 +12,8 @@ function run_paper_experiments(
     discount_factor::Float64 = 0.98,
     seed::Union{Int, Nothing} = nothing,
     verbose::Bool = false,
-    std_divisor::Float64 = 3.0
+    std_divisor::Float64 = 3.0,
+    save_frequency::Int = 50  # Save results every N simulations
 )
     # Set random seed
     if seed === nothing
@@ -36,7 +37,8 @@ function run_paper_experiments(
         "discount_factor" => discount_factor,
         "seed" => seed,
         "timestamp" => timestamp,
-        "std_divisor" => std_divisor
+        "std_divisor" => std_divisor,
+        "save_frequency" => save_frequency
     )
     
     config_path = joinpath(experiment_dir, "experiment_config.json")
@@ -46,16 +48,14 @@ function run_paper_experiments(
     
     println("Experiment configuration saved to: $config_path")
     
-    # Results storage
-    all_results = Dict{String, Dict{String, Any}}()  # problem_size => solver => results
+    # Results storage - only keep aggregated results in memory
+    all_results = Dict{String, Dict{String, Any}}()
     
     # Run experiments for each problem size
     for (size_name, size_config) in problem_sizes
         println("\n" * "="^60)
         println("Running experiments for problem size: $size_name")
         println("="^60)
-        
-        size_results = Dict{String, Any}()
         
         # Load replay data for this problem size
         replay_data_path = size_config["replay_data_path"]
@@ -68,7 +68,7 @@ function run_paper_experiments(
             error("Not enough replay data. Have $(length(replay_data)), need $num_simulations")
         end
         
-        # Extract problem parameters from first simulation
+        # Extract problem parameters
         min_end_time = size_config["min_end_time"]
         max_end_time = size_config["max_end_time"]
         
@@ -108,53 +108,61 @@ function run_paper_experiments(
             policy_times[solver_type] = policy_data["policy_solve_time"]
         end
         
-        # Run simulations for each solver
+        # Run simulations for each solver with incremental saving
+        size_results = Dict{String, Any}()
+        
         for solver_type in solvers
             println("\nRunning simulations with $solver_type solver...")
             
             # Use appropriate POMDP type
             problem = uppercase(solver_type) == "MOMDP_SARSOP" ? momdp : pomdp
             
-            # Run all simulations
-            sim_results = simulate_many(
+            # Run simulations with incremental saving
+            sim_results = simulate_many_incremental(
                 deepcopy(problem),
                 policies[solver_type],
                 num_simulations,
-                collect_beliefs=true,  # Collect beliefs for detailed plots
-                seed=seed,
-                verbose=verbose,
-                replay_data=replay_data[1:num_simulations]
+                experiment_dir,
+                size_name,
+                solver_type,
+                replay_data[1:num_simulations],
+                num_detailed_plots,
+                save_frequency,
+                seed,
+                verbose
             )
             
-            # Add policy generation time
             sim_results["policy_solve_time"] = policy_times[solver_type]
             
-            # Store results
+            # Store consolidated results
             size_results[solver_type] = sim_results
         end
         
-        # Save size results
+        # Save size results (consolidated)
         size_results_path = joinpath(experiment_dir, "results_$(size_name).json")
-        save_results_to_json(size_results, size_results_path)
+        save_consolidated_results(size_results, size_results_path)
         
         all_results[size_name] = size_results
         
         # Generate detailed belief evolution plots for a subset of runs
         if num_detailed_plots > 0
-            generate_detailed_belief_plots(
-                size_results,
-                pomdp,
-                momdp,
+            generate_detailed_belief_plots_from_files(
                 experiment_dir,
                 size_name,
+                solvers,
+                pomdp,
+                momdp,
                 num_detailed_plots
             )
         end
+        
+        # Force garbage collection after each problem size
+        GC.gc()
     end
     
-    # Save combined results
+    # Save combined results (consolidated only)
     combined_results_path = joinpath(experiment_dir, "all_results.json")
-    save_results_to_json(all_results, combined_results_path)
+    save_consolidated_results(all_results, combined_results_path)
     
     println("\n" * "="^60)
     println("Experiment complete!")
@@ -162,6 +170,139 @@ function run_paper_experiments(
     println("="^60)
     
     return experiment_dir, all_results
+end
+
+"""
+Run simulations with incremental saving to prevent memory growth.
+"""
+function simulate_many_incremental(
+    pomdp, 
+    policy, 
+    num_simulations::Int,
+    experiment_dir::String,
+    size_name::String,
+    solver_type::String,
+    replay_data::Vector,
+    num_detailed_plots::Int,
+    save_frequency::Int,
+    seed::Int,
+    verbose::Bool
+)
+    # Set random seed
+    Random.seed!(seed)
+    rand_range = 1:100_000_000
+    
+    # Create directories for detailed data
+    detailed_dir = joinpath(experiment_dir, "detailed_data", size_name, solver_type)
+    mkpath(detailed_dir)
+    
+    # Initialize consolidated metrics
+    consolidated_metrics = Dict{String, Any}(
+        "rewards" => Float64[],
+        "initial_errors" => Int[],
+        "final_errors" => Int[],
+        "num_changes" => Int[],
+        "avg_change_magnitudes" => Float64[],
+        "std_change_magnitudes" => Float64[],
+        "final_undershoot" => Bool[]
+    )
+    
+    # Track simulation data for reproduction
+    all_simulation_data = []
+    
+    # Temporary storage for batch saving
+    batch_metrics = []
+    batch_detailed = []
+    
+    println("Running $num_simulations simulation(s) with incremental saving every $save_frequency simulations")
+    progress = Progress(num_simulations, desc="Running simulations...")
+    
+    for i in 1:num_simulations
+        # Sample a random integer seed for this run
+        run_seed = rand(rand_range)
+        
+        # Determine if we need detailed data for this simulation
+        collect_detailed = i <= num_detailed_plots
+        
+        # Run a single simulation
+        metrics = simulate_single(
+            pomdp, 
+            policy,
+            collect_beliefs=collect_detailed,
+            verbose=false,  # Disable verbose for individual sims
+            debug=false,
+            replay_data=replay_data[i],
+            seed=run_seed
+        )
+        
+        if metrics === nothing
+            if verbose
+                println("Simulation $i failed, skipping...")
+            end
+            continue
+        end
+        
+        # Store consolidated metrics
+        push!(consolidated_metrics["rewards"], metrics["total_reward"])
+        push!(consolidated_metrics["initial_errors"], metrics["initial_error"])
+        push!(consolidated_metrics["final_errors"], metrics["final_error"])
+        push!(consolidated_metrics["num_changes"], metrics["num_changes"])
+        push!(consolidated_metrics["avg_change_magnitudes"], metrics["avg_change_magnitude"])
+        push!(consolidated_metrics["std_change_magnitudes"], metrics["std_change_magnitude"])
+        push!(consolidated_metrics["final_undershoot"], metrics["final_undershoot"])
+        
+        # Store simulation data for reproduction
+        push!(all_simulation_data, metrics["simulation_data"])
+        
+        # Add to batch for detailed saving
+        if collect_detailed
+            # Create minimal detailed metrics for this simulation
+            detailed_metrics = Dict(
+                "simulation_id" => i,
+                "total_reward" => metrics["total_reward"],
+                "initial_error" => metrics["initial_error"],
+                "final_error" => metrics["final_error"],
+                "num_changes" => metrics["num_changes"],
+                "iterations" => metrics["iterations"],
+                "belief_history" => metrics["belief_history"],
+                "min_end_time" => metrics["min_end_time"],
+                "max_end_time" => metrics["max_end_time"]
+            )
+            push!(batch_detailed, detailed_metrics)
+        end
+        
+        # Save batches periodically
+        if i % save_frequency == 0 || i == num_simulations
+            # Save consolidated metrics batch
+            batch_file = joinpath(detailed_dir, "consolidated_batch_$(div(i-1, save_frequency) + 1).json")
+            batch_data = Dict(
+                "batch_start" => max(1, i - save_frequency + 1),
+                "batch_end" => i,
+                "metrics" => consolidated_metrics
+            )
+            save_json_safe(batch_data, batch_file)
+            
+            # Save detailed data batch if any
+            if !isempty(batch_detailed)
+                detailed_batch_file = joinpath(detailed_dir, "detailed_batch_$(div(i-1, save_frequency) + 1).json")
+                save_json_safe(batch_detailed, detailed_batch_file)
+                batch_detailed = []  # Clear batch
+            end
+            
+            if verbose
+                println("Saved batch ending at simulation $i")
+            end
+        end
+        
+        update!(progress, i)
+    end
+    
+    # Save final simulation data for reproduction
+    sim_data_file = joinpath(detailed_dir, "simulation_data.json")
+    save_json_safe(Dict("simulation_data" => all_simulation_data), sim_data_file)
+    
+    # Return consolidated results
+    return consolidated_metrics
 end
 
 """
@@ -210,36 +351,73 @@ function clean_for_json(obj)
     end
 end
 
+
 """
-Save results to JSON, excluding belief histories and other non-serializable objects.
+Safe JSON saving with memory cleanup.
 """
-function save_results_to_json(results::Dict, filepath::String)
-    # Clean the data structure for JSON serialization
-    cleaned_data = clean_for_json(results)
+function save_json_safe(data, filepath::String)
+    # Clean data for JSON serialization
+    cleaned_data = clean_for_json(data)
     
     open(filepath, "w") do f
         JSON.print(f, cleaned_data, 4)
     end
     
-    println("Results saved to: $filepath")
+    # Force cleanup
+    cleaned_data = nothing
+    GC.gc()
 end
 
 """
-Generate detailed belief evolution plots for a subset of runs.
+Save only consolidated results to prevent memory issues.
 """
-function generate_detailed_belief_plots(
-    results::Dict,
+function save_consolidated_results(results::Dict, filepath::String)
+    # Only save the essential consolidated metrics
+    consolidated = Dict()
+    
+    for (key, value) in results
+        if isa(value, Dict)
+            consolidated[key] = Dict()
+            for (subkey, subvalue) in value
+                if isa(subvalue, Dict) && haskey(subvalue, "rewards")
+                    # This is a solver result - keep only essential metrics
+                    consolidated[key][subkey] = Dict(
+                        "rewards" => subvalue["rewards"],
+                        "initial_errors" => subvalue["initial_errors"],
+                        "final_errors" => subvalue["final_errors"],
+                        "num_changes" => subvalue["num_changes"],
+                        "avg_change_magnitudes" => subvalue["avg_change_magnitudes"],
+                        "std_change_magnitudes" => subvalue["std_change_magnitudes"],
+                        "final_undershoot" => subvalue["final_undershoot"],
+                        "policy_solve_time" => get(subvalue, "policy_solve_time", 0.0)
+                    )
+                else
+                    consolidated[key][subkey] = subvalue
+                end
+            end
+        else
+            consolidated[key] = value
+        end
+    end
+    
+    save_json_safe(consolidated, filepath)
+end
+
+"""
+Generate detailed belief evolution plots from saved files instead of memory.
+"""
+function generate_detailed_belief_plots_from_files(
+    experiment_dir::String,
+    size_name::String,
+    solvers::Vector{String},
     pomdp,
     momdp,
-    output_dir::String,
-    problem_size::String,
-    num_plots::Int
+    num_detailed_plots::Int
 )
-    plots_dir = joinpath(output_dir, "belief_evolution_plots", problem_size)
+    plots_dir = joinpath(experiment_dir, "belief_evolution_plots", size_name)
     mkpath(plots_dir)
     
-    # For each solver
-    for (solver, solver_results) in results
+    for solver in solvers
         solver_dir = joinpath(plots_dir, solver)
         mkpath(solver_dir)
         
@@ -247,35 +425,62 @@ function generate_detailed_belief_plots(
         problem = uppercase(solver) == "MOMDP_SARSOP" ? momdp : pomdp
         is_momdp = isa(problem, PlanningProblem)
         
-        # Plot for first num_plots simulations
-        for i in 1:min(num_plots, length(solver_results["simulation_metrics"]))
-            sim_metrics = solver_results["simulation_metrics"][i]
-            
-            # Extract belief history if available
-            belief_history = get(sim_metrics, "belief_history", nothing)
-            if belief_history === nothing
-                continue
+        # Load detailed data from files
+        detailed_dir = joinpath(experiment_dir, "detailed_data", size_name, solver)
+        
+        if !isdir(detailed_dir)
+            continue
+        end
+        
+        # Find all detailed batch files
+        batch_files = filter(f -> startswith(f, "detailed_batch"), readdir(detailed_dir))
+        
+        plot_count = 0
+        for batch_file in batch_files
+            if plot_count >= num_detailed_plots
+                break
             end
             
-            # Get run details and true end time
-            run_details = sim_metrics["iterations"]
-            true_end_time = run_details[1]["Tt"]
-            
-            # Create 2D belief evolution plot with actions
-            p = plot_2d_belief_evolution_with_actions(
-                belief_history,
-                run_details,
-                true_end_time,
-                sim_metrics["min_end_time"],
-                sim_metrics["max_end_time"],
-                title_prefix="$solver - Run $i - ",
-                is_momdp=is_momdp
-            )
-            
-            if p !== nothing
-                savefig(p, joinpath(solver_dir, "belief_evolution_run_$(lpad(i, 3, '0')).png"))
+            batch_path = joinpath(detailed_dir, batch_file)
+            try
+                batch_data = JSON.parsefile(batch_path)
+                
+                for detailed_metrics in batch_data
+                    if plot_count >= num_detailed_plots
+                        break
+                    end
+                    
+                    plot_count += 1
+                    
+                    # Extract data for plotting
+                    belief_history = detailed_metrics["belief_history"]
+                    run_details = detailed_metrics["iterations"]
+                    
+                    if belief_history === nothing || isempty(belief_history)
+                        continue
+                    end
+                    
+                    true_end_time = run_details[1]["Tt"]
+                    
+                    # Create 2D belief evolution plot with actions
+                    p = plot_2d_belief_evolution_with_actions(
+                        belief_history,
+                        run_details,
+                        true_end_time,
+                        detailed_metrics["min_end_time"],
+                        detailed_metrics["max_end_time"],
+                        title_prefix="$solver - Run $(detailed_metrics["simulation_id"]) - ",
+                        is_momdp=is_momdp
+                    )
+                    
+                    if p !== nothing
+                        savefig(p, joinpath(solver_dir, "belief_evolution_run_$(lpad(detailed_metrics["simulation_id"], 3, '0')).png"))
+                    end
+                end
+            catch e
+                println("Warning: Could not load detailed batch file $batch_file: $e")
+                continue
             end
         end
     end
 end
-

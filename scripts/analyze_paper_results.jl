@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 
-# Generate all plots and tables for the paper
+# Generate all plots and tables for the paper - works with incremental data structure
 
 using Pkg
 push!(LOAD_PATH, dirname(dirname(@__FILE__)))
@@ -16,266 +16,36 @@ using DataFrames
 using CSV
 
 """
-Main analysis function that generates all plots and tables from experiment results.
+Load results from the new incremental data structure.
 """
-function analyze_results(experiment_dir::String; output_dir::Union{String, Nothing}=nothing)
-    # Use experiment directory for output if not specified
-    if output_dir === nothing
-        output_dir = joinpath(experiment_dir, "analysis")
+function load_incremental_results(experiment_dir::String)
+    # Try to load consolidated results first
+    all_results_path = joinpath(experiment_dir, "all_results.json")
+    if isfile(all_results_path)
+        return JSON.parsefile(all_results_path)
     end
-    mkpath(output_dir)
     
-    # Load experiment configuration
-    config = JSON.parsefile(joinpath(experiment_dir, "experiment_config.json"))
+    # If consolidated file doesn't exist, build from individual size files
+    all_results = Dict()
     
-    # Load all results
-    all_results = JSON.parsefile(joinpath(experiment_dir, "all_results.json"))
+    # Find all results files
+    for file in readdir(experiment_dir)
+        if startswith(file, "results_") && endswith(file, ".json")
+            size_name = replace(file, "results_" => "", ".json" => "")
+            size_results_path = joinpath(experiment_dir, file)
+            size_results = JSON.parsefile(size_results_path)
+            all_results[size_name] = size_results
+        end
+    end
     
-    problem_sizes = collect(keys(all_results))
-    solvers = config["solvers"]
+    # If still no results, try to reconstruct from detailed_data directory
+    if isempty(all_results)
+        all_results = reconstruct_from_detailed_data(experiment_dir)
+    end
     
-    println("Analyzing results for:")
-    println("  Problem sizes: $(join(problem_sizes, ", "))")
-    println("  Solvers: $(join(solvers, ", "))")
-    println()
-    
-    # 1. Generate reward comparison table and plots
-    generate_reward_analysis(all_results, problem_sizes, solvers, output_dir)
-    
-    # 2. Generate histogram distributions
-    generate_reward_histograms(all_results, problem_sizes, solvers, output_dir)
-    
-    # 3. Generate comparison statistics table
-    generate_statistics_table(all_results, problem_sizes, solvers, output_dir)
-    
-    # 4. Generate combined visualizations
-    generate_combined_plots(all_results, problem_sizes, solvers, output_dir)
-    
-    println("\nAnalysis complete! Results saved to: $output_dir")
+    return all_results
 end
 
-"""
-Generate reward comparison table and plots showing mean and std deviation.
-"""
-function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
-    println("Generating reward analysis...")
-    
-    # Prepare data for table
-    table_data = []
-    
-    # Collect data by problem size
-    for size in problem_sizes
-        for solver in solvers
-            rewards = results[size][solver]["rewards"]
-            push!(table_data, Dict(
-                "Problem Size" => size,
-                "Solver" => solver,
-                "Mean Reward" => mean(rewards),
-                "Std Dev" => std(rewards),
-                "Min" => minimum(rewards),
-                "Max" => maximum(rewards),
-                "Count" => length(rewards)
-            ))
-        end
-    end
-    
-    # Convert to DataFrame for easier manipulation
-    df = DataFrame(table_data)
-    
-    # Save as CSV
-    CSV.write(joinpath(output_dir, "reward_statistics.csv"), df)
-    
-    # Create formatted LaTeX table
-    create_latex_reward_table(df, joinpath(output_dir, "reward_table.tex"))
-    
-    # Create bar plot with error bars for each problem size
-    for size in problem_sizes
-        size_df = filter(row -> row["Problem Size"] == size, df)
-        
-        p = Plots.bar(
-            size_df[!, "Solver"],
-            size_df[!, "Mean Reward"],
-            yerr = size_df[!, "Std Dev"],
-            title = "Mean Reward by Solver - $size Problem",
-            xlabel = "Solver",
-            ylabel = "Mean Reward",
-            legend = false,
-            size = (800, 600),
-            rotation = 45,
-            bottom_margin = 10Plots.mm,
-            fillalpha = 0.8
-        )
-        
-        Plots.savefig(p, joinpath(output_dir, "reward_comparison_$(size).png"))
-    end
-    
-    # Combined plot across all problem sizes
-    gr()  # Use GR backend for grouped bar charts
-    
-    # Reshape data for grouped bar chart
-    mean_matrix = zeros(length(solvers), length(problem_sizes))
-    std_matrix = zeros(length(solvers), length(problem_sizes))
-    
-    for (i, solver) in enumerate(solvers)
-        for (j, size) in enumerate(problem_sizes)
-            solver_data = filter(row -> row["Solver"] == solver && row["Problem Size"] == size, df)
-            if !isempty(solver_data)
-                mean_matrix[i, j] = solver_data[1, "Mean Reward"]
-                std_matrix[i, j] = solver_data[1, "Std Dev"]
-            end
-        end
-    end
-    
-    p_combined = groupedbar(
-        mean_matrix',
-        bar_position = :dodge,
-        bar_width = 0.7,
-        yerr = std_matrix',
-        labels = reshape(solvers, 1, :),
-        xticks = (1:length(problem_sizes), problem_sizes),
-        title = "Mean Reward Comparison Across Problem Sizes",
-        xlabel = "Problem Size",
-        ylabel = "Mean Reward",
-        size = (1000, 600),
-        legend = :bottomleft
-    )
-    
-    Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.png"))
-end
-
-"""
-Generate histogram distributions of rewards.
-"""
-function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
-    println("Generating reward histograms...")
-    
-    hist_dir = joinpath(output_dir, "histograms")
-    mkpath(hist_dir)
-    
-    # Individual histograms for each problem size and solver
-    for size in problem_sizes
-        for solver in solvers
-            rewards = results[size][solver]["rewards"]
-            
-            p = Plots.histogram(
-                rewards,
-                bins = 20,
-                title = "Reward Distribution - $solver ($size)",
-                xlabel = "Total Reward",
-                ylabel = "Frequency",
-                legend = false,
-                fillalpha = 0.7,
-                color = :blue
-            )
-            
-            # Add mean and median lines
-            vline!([mean(rewards)], label = "Mean", linewidth = 2, color = :red)
-            vline!([median(rewards)], label = "Median", linewidth = 2, color = :green, linestyle = :dash)
-            
-            Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).png"))
-        end
-    end
-    
-    # Combined histograms by problem size
-    for size in problem_sizes
-        p = Plots.plot(
-            title = "Reward Distributions - $size Problem",
-            xlabel = "Total Reward",
-            ylabel = "Frequency",
-            size = (1000, 600)
-        )
-        
-        for (i, solver) in enumerate(solvers)
-            rewards = results[size][solver]["rewards"]
-            Plots.histogram!(
-                p,
-                rewards,
-                bins = 20,
-                alpha = 0.5,
-                label = solver,
-                color = i
-            )
-        end
-        
-        Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.png"))
-    end
-    
-    # Combined histogram across all problem sizes for each solver
-    for solver in solvers
-        p = Plots.plot(
-            title = "Reward Distributions - $solver",
-            xlabel = "Total Reward", 
-            ylabel = "Frequency",
-            size = (1000, 600)
-        )
-        
-        for (i, size) in enumerate(problem_sizes)
-            rewards = results[size][solver]["rewards"]
-            Plots.histogram!(
-                p,
-                rewards,
-                bins = 20,
-                alpha = 0.5,
-                label = size,
-                color = i
-            )
-        end
-        
-        Plots.savefig(p, joinpath(hist_dir, "hist_$(solver)_all_sizes.png"))
-    end
-end
-
-"""
-Generate comprehensive statistics table.
-"""
-function generate_statistics_table(results, problem_sizes, solvers, output_dir)
-    println("Generating statistics table...")
-    
-    # Collect all statistics
-    stats_data = []
-    
-    for size in problem_sizes
-        for solver in solvers
-            solver_results = results[size][solver]
-            
-            # Extract metrics
-            rewards = solver_results["rewards"]
-            num_changes = solver_results["num_changes"]
-            final_errors = solver_results["final_errors"]
-            avg_change_mags = solver_results["avg_change_magnitudes"]
-            
-            # Count incorrect final predictions (final error > 0)
-            incorrect_final = count(e -> e > 0, final_errors)
-            
-            # Compute statistics
-            stats = Dict(
-                "Problem Size" => size,
-                "Solver" => solver,
-                "Avg Announcement Changes" => mean(num_changes),
-                "Std Announcement Changes" => std(num_changes),
-                "Avg Final Error" => mean(final_errors),
-                "Incorrect Final (%)" => 100.0 * incorrect_final / length(final_errors),
-                "Avg Change Magnitude" => mean(avg_change_mags),
-                "Std Change Magnitude" => std(avg_change_mags),
-                "Policy Time (s)" => get(solver_results, "policy_solve_time", 0.0)
-            )
-            
-            push!(stats_data, stats)
-        end
-    end
-    
-    # Convert to DataFrame
-    df = DataFrame(stats_data)
-    
-    # Save as CSV
-    CSV.write(joinpath(output_dir, "comparison_statistics.csv"), df)
-    
-    # Create LaTeX table
-    create_latex_statistics_table(df, joinpath(output_dir, "statistics_table.tex"))
-    
-    # Create summary plots
-    create_statistics_plots(df, problem_sizes, solvers, output_dir)
-end
 
 """
 Create LaTeX formatted reward table.
@@ -461,15 +231,504 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
     Plots.savefig(combined, joinpath(combined_dir, "key_metrics_comparison.png"))
 end
 
-# Main execution
+"""
+Reconstruct consolidated results from detailed batch files.
+"""
+function reconstruct_from_detailed_data(experiment_dir::String)
+    detailed_dir = joinpath(experiment_dir, "detailed_data")
+    if !isdir(detailed_dir)
+        error("No results found in experiment directory: $experiment_dir")
+    end
+    
+    all_results = Dict()
+    
+    # Iterate through problem sizes
+    for size_name in readdir(detailed_dir)
+        size_dir = joinpath(detailed_dir, size_name)
+        if !isdir(size_dir)
+            continue
+        end
+        
+        size_results = Dict()
+        
+        # Iterate through solvers
+        for solver_name in readdir(size_dir)
+            solver_dir = joinpath(size_dir, solver_name)
+            if !isdir(solver_dir)
+                continue
+            end
+            
+            # Load consolidated batch files
+            consolidated_files = filter(f -> startswith(f, "consolidated_batch"), readdir(solver_dir))
+            
+            if isempty(consolidated_files)
+                continue
+            end
+            
+            # Aggregate metrics from all batches
+            aggregated_metrics = Dict(
+                "rewards" => Float64[],
+                "initial_errors" => Int[],
+                "final_errors" => Int[],
+                "num_changes" => Int[],
+                "avg_change_magnitudes" => Float64[],
+                "std_change_magnitudes" => Float64[],
+                "final_undershoot" => Bool[]
+            )
+            
+            for batch_file in consolidated_files
+                batch_path = joinpath(solver_dir, batch_file)
+                try
+                    batch_data = JSON.parsefile(batch_path)
+                    if haskey(batch_data, "metrics")
+                        metrics = batch_data["metrics"]
+                        for (key, values) in aggregated_metrics
+                            if haskey(metrics, key)
+                                append!(values, metrics[key])
+                            end
+                        end
+                    end
+                catch e
+                    println("Warning: Could not load batch file $batch_file: $e")
+                end
+            end
+            
+            size_results[solver_name] = aggregated_metrics
+        end
+        
+        all_results[size_name] = size_results
+    end
+    
+    return all_results
+end
+
+
+"""
+Generate memory usage report from the experiment.
+"""
+function generate_memory_report(experiment_dir::String, output_dir::String)
+    println("Generating memory usage report...")
+    
+    report = []
+    total_files = 0
+    total_size_mb = 0.0
+    
+    # Analyze file structure
+    if isdir(experiment_dir)
+        for (root, dirs, files) in walkdir(experiment_dir)
+            for file in files
+                filepath = joinpath(root, file)
+                if isfile(filepath)
+                    total_files += 1
+                    file_size_mb = stat(filepath).size / (1024 * 1024)
+                    total_size_mb += file_size_mb
+                    
+                    # Categorize files
+                    rel_path = relpath(filepath, experiment_dir)
+                    category = if endswith(file, ".json") && contains(rel_path, "detailed_data")
+                        "Detailed Data"
+                    elseif endswith(file, ".json") && !contains(rel_path, "detailed_data")
+                        "Consolidated Results"
+                    elseif endswith(file, ".png")
+                        "Plots"
+                    elseif endswith(file, ".jld2")
+                        "Policies"
+                    else
+                        "Other"
+                    end
+                    
+                    push!(report, Dict(
+                        "file" => rel_path,
+                        "size_mb" => file_size_mb,
+                        "category" => category
+                    ))
+                end
+            end
+        end
+    end
+    
+    # Create summary
+    summary = Dict(
+        "total_files" => total_files,
+        "total_size_mb" => total_size_mb,
+        "files" => report
+    )
+    
+    # Save detailed report
+    report_path = joinpath(output_dir, "memory_usage_report.json")
+    open(report_path, "w") do f
+        JSON.print(f, summary, 4)
+    end
+    
+    # Create summary visualization
+    if !isempty(report)
+        df = DataFrame(report)
+        
+        # Group by category
+        category_summary = combine(groupby(df, :category), 
+                                 :size_mb => sum => :total_size_mb,
+                                 nrow => :file_count)
+        
+        # Create pie chart of disk usage by category
+        p = Plots.pie(
+            category_summary.category,
+            category_summary.total_size_mb,
+            title = "Disk Usage by File Category",
+            legend = :outertopleft
+        )
+        
+        Plots.savefig(p, joinpath(output_dir, "disk_usage_by_category.png"))
+        
+        # Save category summary
+        CSV.write(joinpath(output_dir, "disk_usage_summary.csv"), category_summary)
+        
+        println("Memory usage report saved to: $report_path")
+        println("Total disk usage: $(round(total_size_mb, digits=1)) MB across $total_files files")
+    end
+end
+
+"""
+Enhanced reward analysis that handles both data formats.
+"""
+function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
+    println("Generating reward analysis...")
+    
+    # Prepare data for table
+    table_data = []
+    
+    # Collect data by problem size
+    for size in problem_sizes
+        for solver in solvers
+            if haskey(results[size], solver)
+                solver_data = results[size][solver]
+                
+                # Handle both old and new data formats
+                rewards = if haskey(solver_data, "rewards")
+                    solver_data["rewards"]
+                elseif haskey(solver_data, "total_reward")  # Legacy format
+                    [solver_data["total_reward"]]
+                else
+                    Float64[]  # No reward data
+                end
+                
+                if !isempty(rewards)
+                    push!(table_data, Dict(
+                        "Problem Size" => size,
+                        "Solver" => solver,
+                        "Mean Reward" => mean(rewards),
+                        "Std Dev" => length(rewards) > 1 ? std(rewards) : 0.0,
+                        "Min" => minimum(rewards),
+                        "Max" => maximum(rewards),
+                        "Count" => length(rewards)
+                    ))
+                end
+            end
+        end
+    end
+    
+    if isempty(table_data)
+        println("Warning: No reward data found for analysis")
+        return
+    end
+    
+    # Convert to DataFrame for easier manipulation
+    df = DataFrame(table_data)
+    
+    # Save as CSV
+    CSV.write(joinpath(output_dir, "reward_statistics.csv"), df)
+    
+    # Create formatted LaTeX table
+    create_latex_reward_table(df, joinpath(output_dir, "reward_table.tex"))
+    
+    # Create bar plot with error bars for each problem size
+    for size in problem_sizes
+        size_df = filter(row -> row["Problem Size"] == size, df)
+        
+        if !isempty(size_df)
+            p = Plots.bar(
+                size_df[!, "Solver"],
+                size_df[!, "Mean Reward"],
+                yerr = size_df[!, "Std Dev"],
+                title = "Mean Reward by Solver - $size Problem",
+                xlabel = "Solver",
+                ylabel = "Mean Reward",
+                legend = false,
+                size = (800, 600),
+                rotation = 45,
+                bottom_margin = 10Plots.mm,
+                fillalpha = 0.8
+            )
+            
+            Plots.savefig(p, joinpath(output_dir, "reward_comparison_$(size).png"))
+        end
+    end
+    
+    # Combined plot across all problem sizes
+    gr()  # Use GR backend for grouped bar charts
+    
+    # Reshape data for grouped bar chart
+    unique_sizes = sort(unique(df[!, "Problem Size"]))
+    unique_solvers = sort(unique(df[!, "Solver"]))
+    
+    mean_matrix = zeros(length(unique_solvers), length(unique_sizes))
+    std_matrix = zeros(length(unique_solvers), length(unique_sizes))
+    
+    for (i, solver) in enumerate(unique_solvers)
+        for (j, size) in enumerate(unique_sizes)
+            solver_data = filter(row -> row["Solver"] == solver && row["Problem Size"] == size, df)
+            if !isempty(solver_data)
+                mean_matrix[i, j] = solver_data[1, "Mean Reward"]
+                std_matrix[i, j] = solver_data[1, "Std Dev"]
+            end
+        end
+    end
+    
+    p_combined = groupedbar(
+        mean_matrix',
+        bar_position = :dodge,
+        bar_width = 0.7,
+        yerr = std_matrix',
+        labels = reshape(unique_solvers, 1, :),
+        xticks = (1:length(unique_sizes), unique_sizes),
+        title = "Mean Reward Comparison Across Problem Sizes",
+        xlabel = "Problem Size",
+        ylabel = "Mean Reward",
+        size = (1000, 600),
+        legend = :bottomleft
+    )
+    
+    Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.png"))
+end
+
+# The rest of the functions (generate_reward_histograms, generate_statistics_table, etc.)
+# remain largely the same but with added checks for data format compatibility
+
+"""
+Enhanced histogram generation that handles both data formats.
+"""
+function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
+    println("Generating reward histograms...")
+    
+    hist_dir = joinpath(output_dir, "histograms")
+    mkpath(hist_dir)
+    
+    # Individual histograms for each problem size and solver
+    for size in problem_sizes
+        for solver in solvers
+            if haskey(results[size], solver)
+                solver_data = results[size][solver]
+                
+                # Handle both old and new data formats
+                rewards = if haskey(solver_data, "rewards")
+                    solver_data["rewards"]
+                elseif haskey(solver_data, "total_reward")
+                    [solver_data["total_reward"]]
+                else
+                    continue  # Skip if no reward data
+                end
+                
+                if length(rewards) > 1  # Only create histogram if we have multiple data points
+                    p = Plots.histogram(
+                        rewards,
+                        bins = min(20, length(rewards)),
+                        title = "Reward Distribution - $solver ($size)",
+                        xlabel = "Total Reward",
+                        ylabel = "Frequency",
+                        legend = false,
+                        fillalpha = 0.7,
+                        color = :blue
+                    )
+                    
+                    # Add mean and median lines
+                    vline!([mean(rewards)], label = "Mean", linewidth = 2, color = :red)
+                    if length(rewards) > 1
+                        vline!([median(rewards)], label = "Median", linewidth = 2, color = :green, linestyle = :dash)
+                    end
+                    
+                    Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).png"))
+                end
+            end
+        end
+    end
+    
+    # Combined histograms by problem size
+    for size in problem_sizes
+        p = Plots.plot(
+            title = "Reward Distributions - $size Problem",
+            xlabel = "Total Reward",
+            ylabel = "Frequency",
+            size = (1000, 600)
+        )
+        
+        plot_created = false
+        for (i, solver) in enumerate(solvers)
+            if haskey(results[size], solver)
+                solver_data = results[size][solver]
+                rewards = get(solver_data, "rewards", [])
+                
+                if length(rewards) > 1
+                    Plots.histogram!(
+                        p,
+                        rewards,
+                        bins = min(20, length(rewards)),
+                        alpha = 0.5,
+                        label = solver,
+                        color = i
+                    )
+                    plot_created = true
+                end
+            end
+        end
+        
+        if plot_created
+            Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.png"))
+        end
+    end
+end
+
+
+"""
+Generate comprehensive statistics table.
+"""
+function generate_statistics_table(results, problem_sizes, solvers, output_dir)
+    println("Generating statistics table...")
+    
+    # Collect all statistics
+    stats_data = []
+    
+    for size in problem_sizes
+        for solver in solvers
+            solver_results = results[size][solver]
+            
+            # Extract metrics
+            rewards = solver_results["rewards"]
+            num_changes = solver_results["num_changes"]
+            final_errors = solver_results["final_errors"]
+            avg_change_mags = solver_results["avg_change_magnitudes"]
+            
+            # Count incorrect final predictions (final error > 0)
+            incorrect_final = count(e -> e > 0, final_errors)
+            
+            # Compute statistics
+            stats = Dict(
+                "Problem Size" => size,
+                "Solver" => solver,
+                "Avg Announcement Changes" => mean(num_changes),
+                "Std Announcement Changes" => std(num_changes),
+                "Avg Final Error" => mean(final_errors),
+                "Incorrect Final (%)" => 100.0 * incorrect_final / length(final_errors),
+                "Avg Change Magnitude" => mean(avg_change_mags),
+                "Std Change Magnitude" => std(avg_change_mags),
+                "Policy Time (s)" => get(solver_results, "policy_solve_time", 0.0)
+            )
+            
+            push!(stats_data, stats)
+        end
+    end
+    
+    # Convert to DataFrame
+    df = DataFrame(stats_data)
+    
+    # Save as CSV
+    CSV.write(joinpath(output_dir, "comparison_statistics.csv"), df)
+    
+    # Create LaTeX table
+    create_latex_statistics_table(df, joinpath(output_dir, "statistics_table.tex"))
+    
+    # Create summary plots
+    create_statistics_plots(df, problem_sizes, solvers, output_dir)
+end
+
+"""
+Main analysis function that generates all plots and tables from experiment results.
+Works with both old and new (incremental) data structures.
+"""
+function analyze_results(experiment_dir::String; output_dir::Union{String, Nothing}=nothing)
+    # Use experiment directory for output if not specified
+    if output_dir === nothing
+        output_dir = joinpath(experiment_dir, "analysis")
+    end
+    mkpath(output_dir)
+    
+    # Load experiment configuration
+    config_path = joinpath(experiment_dir, "experiment_config.json")
+    if !isfile(config_path)
+        error("Experiment configuration not found: $config_path")
+    end
+    config = JSON.parsefile(config_path)
+    
+    # Load all results (handles both old and new formats)
+    all_results = load_incremental_results(experiment_dir)
+    
+    if isempty(all_results)
+        error("No results found in experiment directory: $experiment_dir")
+    end
+    
+    problem_sizes = collect(keys(all_results))
+    
+    # Extract solvers from config or infer from data
+    if haskey(config, "solvers")
+        solvers = config["solvers"]
+    else
+        # Infer solvers from first problem size
+        first_size = first(values(all_results))
+        solvers = collect(keys(first_size))
+    end
+    
+    println("Analyzing results for:")
+    println("  Problem sizes: $(join(problem_sizes, ", "))")
+    println("  Solvers: $(join(solvers, ", "))")
+    println("  Data structure: $(haskey(config, "save_frequency") ? "Incremental" : "Legacy")")
+    println()
+    
+    # 1. Generate reward comparison table and plots
+    generate_reward_analysis(all_results, problem_sizes, solvers, output_dir)
+    
+    # 2. Generate histogram distributions
+    generate_reward_histograms(all_results, problem_sizes, solvers, output_dir)
+    
+    # 3. Generate comparison statistics table
+    generate_statistics_table(all_results, problem_sizes, solvers, output_dir)
+    
+    # 4. Generate combined visualizations
+    generate_combined_plots(all_results, problem_sizes, solvers, output_dir)
+    
+    # 5. Generate memory usage report if available
+    generate_memory_report(experiment_dir, output_dir)
+    
+    println("\nAnalysis complete! Results saved to: $output_dir")
+end
+
+# Main execution with enhanced error handling
 if abspath(PROGRAM_FILE) == @__FILE__
     if length(ARGS) < 1
         println("Usage: julia analyze_paper_results.jl <experiment_directory> [output_directory]")
+        println("       Supports both legacy and incremental data structures")
         exit(1)
     end
     
     experiment_dir = ARGS[1]
     output_dir = length(ARGS) >= 2 ? ARGS[2] : nothing
     
-    analyze_results(experiment_dir, output_dir=output_dir)
+    if !isdir(experiment_dir)
+        println("Error: Experiment directory not found: $experiment_dir")
+        exit(1)
+    end
+    
+    try
+        analyze_results(experiment_dir, output_dir=output_dir)
+        println("✓ Analysis completed successfully")
+    catch e
+        println("✗ Error during analysis: $e")
+        if isa(e, InterruptException)
+            println("Analysis interrupted by user")
+        else
+            println("Stack trace:")
+            for (exc, bt) in Base.catch_stack()
+                showerror(stdout, exc, bt)
+                println()
+            end
+        end
+        exit(1)
+    end
 end
