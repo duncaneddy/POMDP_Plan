@@ -10,9 +10,8 @@ push!(LOAD_PATH, dirname(dirname(@__FILE__)))
 using POMDPPlanning
 
 # Configuration
-SOLVERS = ["OBSERVEDTIME", "MOSTLIKELY", "QMDP", "CXX_SARSOP", "MOMDP_SARSOP"]
-SOLVERS = ["OBSERVEDTIME", "MOSTLIKELY", "QMDP"]
-POLICY_TIMEOUT = 60*30  # 30 minutes for policy computation
+SOLVERS = ["OBSERVEDTIME", "MOSTLIKELY", "QMDP", "MOMDP_SARSOP"]
+POLICY_TIMEOUT = 60*60*6  # 6 hours for policy computation
 NUM_SIMULATIONS = 1000  # Number of simulations per solver/problem
 NUM_DETAILED_PLOTS = 25  # Number of runs to save detailed belief plots for
 SAVE_FREQUENCY = 50     # Save results every N simulations to prevent memory growth
@@ -29,9 +28,9 @@ function load_problem_configs(reference_dir::String="reference_problems")
     # Define problem sizes
     problem_definitions = Dict(
         "small" => Dict(
-            "filename" => "std_div_3/qmdp_base_l_2_u_12_n_1000.json",
+            "filename" => "std_div_3/qmdp_base_l_2_u_13_n_1000.json",
             "min_end_time" => 2,
-            "max_end_time" => 12
+            "max_end_time" => 13
         ),
         "medium" => Dict(
             "filename" => "std_div_3/qmdp_base_l_2_u_26_n_1000.json", 
@@ -39,6 +38,11 @@ function load_problem_configs(reference_dir::String="reference_problems")
             "max_end_time" => 26
         ),
         "large" => Dict(
+            "filename" => "std_div_3/qmdp_base_l_2_u_39_n_1000.json", 
+            "min_end_time" => 2,
+            "max_end_time" => 39
+        ),
+        "xlarge" => Dict(
             "filename" => "std_div_3/qmdp_base_l_2_u_52_n_1000.json", 
             "min_end_time" => 2,
             "max_end_time" => 52
