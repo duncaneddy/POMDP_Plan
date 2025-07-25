@@ -208,7 +208,7 @@ function simulate_many_incremental(
     )
     
     # Track simulation data for reproduction
-    all_simulation_data = []
+    # all_simulation_data = []
     
     # Temporary storage for batch saving
     batch_metrics = []
@@ -252,7 +252,7 @@ function simulate_many_incremental(
         push!(consolidated_metrics["final_undershoot"], metrics["final_undershoot"])
         
         # Store simulation data for reproduction
-        push!(all_simulation_data, metrics["simulation_data"])
+        # push!(all_simulation_data, metrics["simulation_data"])
         
         # Add to batch for detailed saving
         if collect_detailed
@@ -289,17 +289,17 @@ function simulate_many_incremental(
                 batch_detailed = []  # Clear batch
             end
             
-            if verbose
-                println("Saved batch ending at simulation $i")
-            end
+            # if verbose
+            #     println("Saved batch ending at simulation $i")
+            # end
         end
         
         update!(progress, i)
     end
     
     # Save final simulation data for reproduction
-    sim_data_file = joinpath(detailed_dir, "simulation_data.json")
-    save_json_safe(Dict("simulation_data" => all_simulation_data), sim_data_file)
+    # sim_data_file = joinpath(detailed_dir, "simulation_data.json")
+    # save_json_safe(Dict("simulation_data" => all_simulation_data), sim_data_file)
     
     # Return consolidated results
     return consolidated_metrics
@@ -312,8 +312,17 @@ function clean_for_json(obj)
     if obj isa Dict
         cleaned = Dict()
         for (key, value) in obj
-            # Skip known problematic keys
-            if key in ["policy", "pomdp", "momdp", "belief_history", "belief", 
+            # Handle belief_history specially
+            if key == "belief_history"
+                cleaned_value = serialize_belief_history(value)
+                if cleaned_value !== nothing
+                    cleaned[string(key)] = cleaned_value
+                end
+                continue
+            end
+            
+            # Skip other known problematic keys
+            if key in ["policy", "pomdp", "momdp", "belief", 
                       "updater", "rng", "policy_object"]
                 continue
             end
@@ -351,6 +360,108 @@ function clean_for_json(obj)
     end
 end
 
+
+"""
+Convert belief history to JSON-serializable format.
+"""
+function serialize_belief_history(belief_history)
+    if belief_history === nothing
+        return nothing
+    end
+    
+    serialized_beliefs = []
+    
+    for belief in belief_history
+        if belief === nothing
+            push!(serialized_beliefs, nothing)
+            continue
+        end
+        
+        try
+            states, probs = extract_belief_states_and_probs(belief)
+            
+            # Convert states to arrays for JSON compatibility
+            serialized_states = []
+            for state in states
+                if isa(state, Tuple)
+                    push!(serialized_states, collect(state))
+                else
+                    push!(serialized_states, state)
+                end
+            end
+            
+            serialized_belief = Dict(
+                "states" => serialized_states,
+                "probabilities" => collect(probs),
+                "belief_type" => string(typeof(belief))
+            )
+            
+            push!(serialized_beliefs, serialized_belief)
+        catch e
+            # If we can't serialize this belief, store a placeholder
+            push!(serialized_beliefs, Dict(
+                "error" => "Failed to serialize belief: $(e)",
+                "belief_type" => string(typeof(belief))
+            ))
+        end
+    end
+    
+    return serialized_beliefs
+end
+
+"""
+Reconstruct belief objects from serialized format for plotting.
+"""
+function deserialize_belief_history(serialized_beliefs, is_momdp::Bool=false)
+    if serialized_beliefs === nothing
+        return nothing
+    end
+    
+    beliefs = []
+    
+    for serialized_belief in serialized_beliefs
+        if serialized_belief === nothing
+            push!(beliefs, nothing)
+            continue
+        end
+        
+        if haskey(serialized_belief, "error")
+            # Skip beliefs that failed to serialize
+            push!(beliefs, nothing)
+            continue
+        end
+        
+        try
+            states = serialized_belief["states"]
+            probs = serialized_belief["probabilities"]
+            
+            # Convert states back to tuples if needed
+            converted_states = []
+            for state in states
+                if isa(state, Array)
+                    if is_momdp && length(state) == 1
+                        # For MOMDP, states are just integers
+                        push!(converted_states, state[1])
+                    else
+                        # For POMDP, states are tuples
+                        push!(converted_states, Tuple(state))
+                    end
+                else
+                    push!(converted_states, state)
+                end
+            end
+            
+            # Create a simple belief representation that works with existing functions
+            belief = POMDPTools.POMDPDistributions.SparseCat(converted_states, probs)
+            push!(beliefs, belief)
+        catch e
+            # If reconstruction fails, use a placeholder
+            push!(beliefs, nothing)
+        end
+    end
+    
+    return beliefs
+end
 
 """
 Safe JSON saving with memory cleanup.
@@ -452,11 +563,13 @@ function generate_detailed_belief_plots_from_files(
                     
                     plot_count += 1
                     
-                    # Extract data for plotting
-                    belief_history = detailed_metrics["belief_history"]
+                    # Extract and deserialize belief history
+                    serialized_belief_history = get(detailed_metrics, "belief_history", nothing)
+                    belief_history = deserialize_belief_history(serialized_belief_history, is_momdp)
                     run_details = detailed_metrics["iterations"]
                     
                     if belief_history === nothing || isempty(belief_history)
+                        println("Warning: No belief history available for $(solver) run $(detailed_metrics["simulation_id"])")
                         continue
                     end
                     
