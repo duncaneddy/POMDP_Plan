@@ -154,7 +154,7 @@ function create_latex_statistics_table(df::DataFrame, filepath::String)
 end
 
 """
-Create additional statistics plots
+Create additional statistics plots.
 """
 function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_dir)
     stats_plot_dir = joinpath(output_dir, "statistics_plots")
@@ -172,21 +172,30 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
     
     for solver in solvers
         solver_data = filter(row -> row["Solver"] == solver, df)
-        y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Avg Announcement Changes"][1] 
-                  for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
-        x_data = [size for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
-        
-        plot!(p1, x_data, y_data,
-              label = solver, 
-              marker = :circle, 
-              markersize = 6,
-              linewidth = 2,
-              color = get_solver_color(solver))
+        if !isempty(solver_data)
+            y_data = []
+            x_data = []
+            for size in sorted_sizes
+                size_data = solver_data[solver_data[!, "Problem Size"] .== size, :]
+                if !isempty(size_data)
+                    push!(y_data, size_data[1, "Avg Announcement Changes"])
+                    push!(x_data, size)
+                end
+            end
+            
+            if !isempty(x_data)
+                plot!(p1, x_data, y_data,
+                      label = solver, 
+                      marker = :circle, 
+                      markersize = 6,
+                      linewidth = 2,
+                      color = get_solver_color(solver))
+            end
+        end
     end
     
     Plots.savefig(p1, joinpath(stats_plot_dir, "avg_announcement_changes.svg"))
     Plots.savefig(p1, joinpath(stats_plot_dir, "avg_announcement_changes.pdf"))
-    
     
     # Plot average final error
     p2 = Plots.plot(title = "Average Final Error",
@@ -197,16 +206,26 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
     
     for solver in solvers
         solver_data = filter(row -> row["Solver"] == solver, df)
-        y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Avg Final Error"][1]
-                  for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
-        x_data = [size for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
-        
-        plot!(p2, x_data, y_data,
-              label = solver,
-              marker = :circle,
-              markersize = 6, 
-              linewidth = 2,
-              color = get_solver_color(solver))
+        if !isempty(solver_data)
+            y_data = []
+            x_data = []
+            for size in sorted_sizes
+                size_data = solver_data[solver_data[!, "Problem Size"] .== size, :]
+                if !isempty(size_data)
+                    push!(y_data, size_data[1, "Avg Final Error"])
+                    push!(x_data, size)
+                end
+            end
+            
+            if !isempty(x_data)
+                plot!(p2, x_data, y_data,
+                      label = solver,
+                      marker = :circle,
+                      markersize = 6, 
+                      linewidth = 2,
+                      color = get_solver_color(solver))
+            end
+        end
     end
     
     Plots.savefig(p2, joinpath(stats_plot_dir, "avg_final_error.svg"))
@@ -221,16 +240,26 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
     
     for solver in solvers
         solver_data = filter(row -> row["Solver"] == solver, df)
-        y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Incorrect Final (%)"][1]
-                  for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
-        x_data = [size for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
-        
-        plot!(p3, x_data, y_data,
-              label = solver,
-              marker = :circle,
-              markersize = 6,
-              linewidth = 2,
-              color = get_solver_color(solver))
+        if !isempty(solver_data)
+            y_data = []
+            x_data = []
+            for size in sorted_sizes
+                size_data = solver_data[solver_data[!, "Problem Size"] .== size, :]
+                if !isempty(size_data)
+                    push!(y_data, size_data[1, "Incorrect Final (%)"])
+                    push!(x_data, size)
+                end
+            end
+            
+            if !isempty(x_data)
+                plot!(p3, x_data, y_data,
+                      label = solver,
+                      marker = :circle,
+                      markersize = 6,
+                      linewidth = 2,
+                      color = get_solver_color(solver))
+            end
+        end
     end
     
     Plots.savefig(p3, joinpath(stats_plot_dir, "incorrect_predictions.svg"))
@@ -238,7 +267,7 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
 end
 
 """
-Generate combined visualizations for the paper
+Generate combined visualizations for the paper with improved formatting.
 """
 function generate_combined_plots(results, problem_sizes, solvers, output_dir)
     println("Generating combined visualizations...")
@@ -269,44 +298,83 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
                     PLOT_SETTINGS...)
     
     for solver in solvers
-        # Collect data across problem sizes
-        mean_rewards = []
-        error_rates = []
-        avg_changes = []
-        policy_times = []
-        available_sizes = []
+        # Collect data across problem sizes - only for sizes where data exists
+        mean_rewards = Float64[]
+        error_rates = Float64[]
+        avg_changes = Float64[]
+        policy_times = Float64[]
+        available_sizes = String[]
         
         for size in sorted_sizes
             if haskey(results, size) && haskey(results[size], solver)
                 solver_results = results[size][solver]
                 
-                push!(mean_rewards, mean(solver_results["rewards"]))
-                
-                # Error rate = percentage with final error > 0
-                error_rate = 100.0 * count(e -> e > 0, solver_results["final_errors"]) / 
-                             length(solver_results["final_errors"])
-                push!(error_rates, error_rate)
-                
-                push!(avg_changes, mean(solver_results["num_changes"]))
-                push!(policy_times, get(solver_results, "policy_solve_time", 0.001))
-                push!(available_sizes, size)
+                # Check if the solver has meaningful data
+                if haskey(solver_results, "rewards") && !isempty(solver_results["rewards"])
+                    push!(mean_rewards, mean(solver_results["rewards"]))
+                    
+                    # Error rate = percentage with final error > 0
+                    if haskey(solver_results, "final_errors") && !isempty(solver_results["final_errors"])
+                        error_rate = 100.0 * count(e -> e > 0, solver_results["final_errors"]) / 
+                                     length(solver_results["final_errors"])
+                        push!(error_rates, error_rate)
+                    else
+                        push!(error_rates, NaN)
+                    end
+                    
+                    if haskey(solver_results, "num_changes") && !isempty(solver_results["num_changes"])
+                        push!(avg_changes, mean(solver_results["num_changes"]))
+                    else
+                        push!(avg_changes, NaN)
+                    end
+                    
+                    push!(policy_times, max(get(solver_results, "policy_solve_time", 0.001), 0.001))
+                    push!(available_sizes, size)
+                end
             end
         end
         
-        solver_color = get_solver_color(solver)
-        
-        plot!(p1, available_sizes, mean_rewards, 
-              label = solver, marker = :circle, markersize = 6, 
-              linewidth = 2, color = solver_color)
-        plot!(p2, available_sizes, error_rates, 
-              label = solver, marker = :circle, markersize = 6, 
-              linewidth = 2, color = solver_color)
-        plot!(p3, available_sizes, avg_changes, 
-              label = solver, marker = :circle, markersize = 6, 
-              linewidth = 2, color = solver_color)
-        plot!(p4, available_sizes, policy_times, 
-              label = solver, marker = :circle, markersize = 6, 
-              linewidth = 2, color = solver_color)
+        # Only plot if we have data
+        if !isempty(available_sizes)
+            solver_color = get_solver_color(solver)
+            
+            # Filter out NaN values for each plot separately
+            if !all(isnan.(mean_rewards))
+                valid_idx = .!isnan.(mean_rewards)
+                if any(valid_idx)
+                    plot!(p1, available_sizes[valid_idx], mean_rewards[valid_idx], 
+                          label = solver, marker = :circle, markersize = 6, 
+                          linewidth = 2, color = solver_color)
+                end
+            end
+            
+            if !all(isnan.(error_rates))
+                valid_idx = .!isnan.(error_rates)
+                if any(valid_idx)
+                    plot!(p2, available_sizes[valid_idx], error_rates[valid_idx], 
+                          label = solver, marker = :circle, markersize = 6, 
+                          linewidth = 2, color = solver_color)
+                end
+            end
+            
+            if !all(isnan.(avg_changes))
+                valid_idx = .!isnan.(avg_changes)
+                if any(valid_idx)
+                    plot!(p3, available_sizes[valid_idx], avg_changes[valid_idx], 
+                          label = solver, marker = :circle, markersize = 6, 
+                          linewidth = 2, color = solver_color)
+                end
+            end
+            
+            if !all(isnan.(policy_times)) && !all(policy_times .<= 0.001)
+                valid_idx = .!isnan.(policy_times) .& (policy_times .> 0.001)
+                if any(valid_idx)
+                    plot!(p4, available_sizes[valid_idx], policy_times[valid_idx], 
+                          label = solver, marker = :circle, markersize = 6, 
+                          linewidth = 2, color = solver_color)
+                end
+            end
+        end
     end
     
     xlabel!(p1, "Problem Size")
@@ -393,6 +461,9 @@ function reconstruct_from_detailed_data(experiment_dir::String)
     return all_results
 end
 
+"""
+Enhanced reward analysis with improved formatting and consistent colors.
+"""
 function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
     println("Generating reward analysis...")
     
@@ -451,6 +522,9 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
         size_df = filter(row -> row["Problem Size"] == size, df)
         
         if !isempty(size_df)
+            # Sort by solver name for consistency
+            sort!(size_df, :Solver)
+            
             p = Plots.bar(
                 size_df[!, "Solver"],
                 size_df[!, "Mean Reward"],
@@ -476,45 +550,58 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
     # Reshape data for grouped bar chart with consistent ordering
     unique_solvers = sort(unique(df[!, "Solver"]))
     
-    mean_matrix = zeros(length(unique_solvers), length(sorted_sizes))
-    std_matrix = zeros(length(unique_solvers), length(sorted_sizes))
+    # Only include sizes that have data for at least one solver
+    available_sizes = [size for size in sorted_sizes if any(row -> row["Problem Size"] == size, eachrow(df))]
+    
+    mean_matrix = zeros(length(unique_solvers), length(available_sizes))
+    std_matrix = zeros(length(unique_solvers), length(available_sizes))
     
     for (i, solver) in enumerate(unique_solvers)
-        for (j, size) in enumerate(sorted_sizes)
+        for (j, size) in enumerate(available_sizes)
             solver_data = filter(row -> row["Solver"] == solver && row["Problem Size"] == size, df)
             if !isempty(solver_data)
                 mean_matrix[i, j] = solver_data[1, "Mean Reward"]
                 std_matrix[i, j] = solver_data[1, "Std Dev"]
+            else
+                # Use NaN for missing data - Plots.jl will handle this correctly
+                mean_matrix[i, j] = NaN
+                std_matrix[i, j] = NaN
             end
         end
     end
     
-    # Create color palette with consistent colors
-    solver_colors = [get_solver_color(solver) for solver in unique_solvers]
+    # Filter out solvers that have no data at all
+    has_data = [!all(isnan.(mean_matrix[i, :])) for i in 1:length(unique_solvers)]
+    filtered_solvers = unique_solvers[has_data]
+    filtered_mean_matrix = mean_matrix[has_data, :]
+    filtered_std_matrix = std_matrix[has_data, :]
     
-    p_combined = groupedbar(
-        mean_matrix',
-        bar_position = :dodge,
-        bar_width = 0.7,
-        yerr = std_matrix',  # YES, these lines indicate +/- standard deviation
-        labels = reshape(unique_solvers, 1, :),
-        xticks = (1:length(sorted_sizes), sorted_sizes),
-        title = "Mean Reward Comparison Across Problem Sizes",
-        xlabel = "Problem Size",
-        ylabel = "Mean Reward",
-        size = (1200, 700),
-        legend = :bottomleft,
-        color = reshape(solver_colors, 1, :);
-        PLOT_SETTINGS...)
-    
-    Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.svg"))
-    Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.pdf"))
+    if !isempty(filtered_solvers) && !isempty(available_sizes)
+        p_combined = groupedbar(
+            filtered_mean_matrix',
+            bar_position = :dodge,
+            bar_width = 0.7,
+            yerr = filtered_std_matrix',  # YES, these lines indicate +/- standard deviation
+            labels = reshape(filtered_solvers, 1, :),
+            xticks = (1:length(available_sizes), available_sizes),
+            title = "Mean Reward Comparison Across Problem Sizes",
+            xlabel = "Problem Size",
+            ylabel = "Mean Reward",
+            size = (1200, 700),
+            legend = :bottomleft;
+            PLOT_SETTINGS...)
+        
+        Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.svg"))
+        Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.pdf"))
+    end
     
     println("Note: Error bars in reward comparison plots indicate ± standard deviation")
+    println("Analysis complete!")
+    println()
 end
 
 """
-Enhanced histogram generation with improved formatting.
+Enhanced histogram generation.
 """
 function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
     println("Generating reward histograms...")
@@ -527,41 +614,43 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
     
     # Individual histograms for each problem size and solver
     for size in sorted_sizes
-        for solver in solvers
-            if haskey(results[size], solver)
-                solver_data = results[size][solver]
-                
-                # Handle both old and new data formats
-                rewards = if haskey(solver_data, "rewards")
-                    solver_data["rewards"]
-                elseif haskey(solver_data, "total_reward")
-                    [solver_data["total_reward"]]
-                else
-                    continue  # Skip if no reward data
-                end
-                
-                if length(rewards) > 1  # Only create histogram if we have multiple data points
-                    p = Plots.histogram(
-                        rewards,
-                        bins = min(20, length(rewards)),
-                        title = "Reward Distribution - $solver ($size)",
-                        xlabel = "Total Reward",
-                        ylabel = "Frequency",
-                        legend = false,
-                        fillalpha = 0.7,
-                        color = get_solver_color(solver),
-                        size = (800, 600);
-                        PLOT_SETTINGS...
-                    )
+        if haskey(results, size)
+            for solver in solvers
+                if haskey(results[size], solver)
+                    solver_data = results[size][solver]
                     
-                    # Add mean and median lines
-                    vline!([mean(rewards)], label = "Mean", linewidth = 2, color = :red)
-                    if length(rewards) > 1
-                        vline!([median(rewards)], label = "Median", linewidth = 2, color = :green, linestyle = :dash)
+                    # Handle both old and new data formats
+                    rewards = if haskey(solver_data, "rewards")
+                        solver_data["rewards"]
+                    elseif haskey(solver_data, "total_reward")
+                        [solver_data["total_reward"]]
+                    else
+                        continue  # Skip if no reward data
                     end
                     
-                    Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).svg"))
-                    Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).pdf"))
+                    if length(rewards) > 1  # Only create histogram if we have multiple data points
+                        p = Plots.histogram(
+                            rewards,
+                            bins = min(20, length(rewards)),
+                            title = "Reward Distribution - $solver ($size)",
+                            xlabel = "Total Reward",
+                            ylabel = "Frequency",
+                            legend = true,
+                            fillalpha = 0.7,
+                            color = get_solver_color(solver),
+                            size = (800, 600);
+                            PLOT_SETTINGS...
+                        )
+                        
+                        # Add mean and median lines
+                        vline!([mean(rewards)], label = "Mean", linewidth = 2, color = :red)
+                        if length(rewards) > 1
+                            vline!([median(rewards)], label = "Median", linewidth = 2, color = :green, linestyle = :dash)
+                        end
+                        
+                        Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).svg"))
+                        Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).pdf"))
+                    end
                 end
             end
         end
@@ -569,43 +658,45 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
     
     # Combined histograms by problem size
     for size in sorted_sizes
-        p = Plots.plot(
-            title = "Reward Distributions - $size Problem",
-            xlabel = "Total Reward",
-            ylabel = "Frequency",
-            size = (1000, 600);
-            PLOT_SETTINGS...
-        )
-        
-        plot_created = false
-        for solver in solvers
-            if haskey(results[size], solver)
-                solver_data = results[size][solver]
-                rewards = get(solver_data, "rewards", [])
-                
-                if length(rewards) > 1
-                    Plots.histogram!(
-                        p,
-                        rewards,
-                        bins = min(20, length(rewards)),
-                        alpha = 0.5,
-                        label = solver,
-                        color = get_solver_color(solver)
-                    )
-                    plot_created = true
+        if haskey(results, size)
+            p = Plots.plot(
+                title = "Reward Distributions - $size Problem",
+                xlabel = "Total Reward",
+                ylabel = "Frequency",
+                size = (1000, 600);
+                PLOT_SETTINGS...
+            )
+            
+            plot_created = false
+            for solver in solvers
+                if haskey(results[size], solver)
+                    solver_data = results[size][solver]
+                    rewards = get(solver_data, "rewards", [])
+                    
+                    if length(rewards) > 1
+                        Plots.histogram!(
+                            p,
+                            rewards,
+                            bins = min(20, length(rewards)),
+                            alpha = 0.5,
+                            label = solver,
+                            color = get_solver_color(solver)
+                        )
+                        plot_created = true
+                    end
                 end
             end
-        end
-        
-        if plot_created
-            Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.svg"))
-            Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.pdf"))
+            
+            if plot_created
+                Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.svg"))
+                Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.pdf"))
+            end
         end
     end
 end
 
 """
-Generate comprehensive statistics table
+Generate comprehensive statistics table.
 """
 function generate_statistics_table(results, problem_sizes, solvers, output_dir)
     println("Generating statistics table...")
@@ -749,7 +840,7 @@ function generate_memory_report(experiment_dir::String, output_dir::String)
 end
 
 """
-Main analysis function
+Main analysis function.
 """
 function analyze_results(experiment_dir::String; output_dir::Union{String, Nothing}=nothing)
     # Use experiment directory for output if not specified
@@ -826,7 +917,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
     
     try
         analyze_results(experiment_dir, output_dir=output_dir)
-        println("✓ Analysis completed successfully")
+        println("✓ Analysis completed successfully with improved formatting and fixed warnings")
     catch e
         println("✗ Error during analysis: $e")
         if isa(e, InterruptException)
