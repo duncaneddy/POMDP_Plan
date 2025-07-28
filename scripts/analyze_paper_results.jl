@@ -1,7 +1,7 @@
 #!/usr/bin/env julia
 
 # Generate all plots and tables for the paper - works with incremental data structure
-# IMPROVED VERSION with consistent solver ordering and LaTeX serif fonts
+# IMPROVED VERSION with better formatting, consistent colors, and higher quality outputs
 
 using Pkg
 push!(LOAD_PATH, dirname(dirname(@__FILE__)))
@@ -16,9 +16,8 @@ using Printf
 using DataFrames
 using CSV
 
-# Define consistent problem size and solver ordering
+# Define consistent problem size ordering and color scheme
 const PROBLEM_SIZE_ORDER = ["small", "medium", "large", "xlarge"]
-const SOLVER_ORDER = ["OBSERVEDTIME", "MOSTLIKELY", "QMDP", "MOMDP_SARSOP"]
 const SOLVER_COLORS = Dict(
     "OBSERVEDTIME" => :blue,
     "MOSTLIKELY" => :red, 
@@ -30,14 +29,13 @@ const SOLVER_COLORS = Dict(
     "PBVI" => :gray
 )
 
-# Global plot settings for consistent formatting with LaTeX serif fonts
+# Global plot settings for consistent formatting
 const PLOT_SETTINGS = Dict(
     :titlefontsize => 16,
     :labelfontsize => 14,
     :tickfontsize => 12,
     :legendfontsize => 12,
     :guidefontsize => 14,
-    :fontfamily => "Computer Modern",  # LaTeX default serif font
     :left_margin => 15Plots.mm,
     :bottom_margin => 12Plots.mm,
     :right_margin => 10Plots.mm,
@@ -61,17 +59,6 @@ function sort_problem_sizes(sizes::Vector{String})
     # Add any unexpected sizes at the end
     unexpected_sizes = filter(s -> !(s in PROBLEM_SIZE_ORDER), sizes)
     return vcat(existing_sizes, sort(unexpected_sizes))
-end
-
-"""
-Sort solvers in the correct order for consistent presentation.
-"""
-function sort_solvers(solvers::Vector{Any})
-    # Filter to only include solvers that exist in our data
-    existing_solvers = filter(s -> s in solvers, SOLVER_ORDER)
-    # Add any unexpected solvers at the end
-    unexpected_solvers = filter(s -> !(s in SOLVER_ORDER), solvers)
-    return vcat(existing_solvers, sort(unexpected_solvers))
 end
 
 """
@@ -103,6 +90,411 @@ function load_incremental_results(experiment_dir::String)
     end
     
     return all_results
+end
+
+"""
+Extract belief states and probabilities - handles both original and deserialized beliefs.
+"""
+function extract_belief_states_and_probs_local(belief)
+    if belief === nothing
+        return [], []
+    end
+    
+    # Handle our custom deserialized belief format
+    if isa(belief, Dict) && haskey(belief, :is_sparse_cat)
+        return belief[:states], belief[:probs]
+    end
+    
+    # Handle original SparseCat format
+    if isa(belief, POMDPTools.POMDPDistributions.SparseCat)
+        return belief.vals, belief.probs
+    end
+    
+    # Handle tuple format (single state)
+    if isa(belief, Tuple)
+        return [belief], [1.0]
+    end
+    
+    # Fallback to original function if available
+    try
+        return POMDPPlanning.extract_belief_states_and_probs(belief)
+    catch
+        println("Warning: Could not extract belief states and probabilities")
+        return [], []
+    end
+end
+function deserialize_belief_history(serialized_beliefs, is_momdp::Bool=false)
+    if serialized_beliefs === nothing
+        return nothing
+    end
+    
+    beliefs = []
+    
+    for serialized_belief in serialized_beliefs
+        if serialized_belief === nothing
+            push!(beliefs, nothing)
+            continue
+        end
+        
+        if haskey(serialized_belief, "error")
+            # Skip beliefs that failed to serialize
+            push!(beliefs, nothing)
+            continue
+        end
+        
+        try
+            states = serialized_belief["states"]
+            probs = serialized_belief["probabilities"]
+            
+            # Convert states back to tuples if needed
+            converted_states = []
+            for state in states
+                if isa(state, Array)
+                    if is_momdp && length(state) == 1
+                        # For MOMDP, states are just integers
+                        push!(converted_states, state[1])
+                    else
+                        # For POMDP, states are tuples
+                        push!(converted_states, Tuple(state))
+                    end
+                else
+                    push!(converted_states, state)
+                end
+            end
+            
+            # Ensure probabilities are normalized
+            prob_sum = sum(probs)
+            if prob_sum > 0
+                normalized_probs = probs ./ prob_sum
+            else
+                normalized_probs = probs
+            end
+            
+            # Create a custom belief object that works with extract_belief_states_and_probs
+            belief_dict = Dict(
+                :states => converted_states,
+                :probs => normalized_probs,
+                :is_sparse_cat => true
+            )
+            
+            push!(beliefs, belief_dict)
+        catch e
+            println("Warning: Failed to deserialize belief: $e")
+            # If reconstruction fails, use a placeholder
+            push!(beliefs, nothing)
+        end
+    end
+    
+    return beliefs
+end
+
+"""
+Generate belief evolution plots from experiment results JSON data.
+"""
+function generate_belief_evolution_plots_from_json(experiment_dir::String, output_dir::String)
+    println("Generating belief evolution plots from JSON data...")
+    
+    # Create belief plots directory under analysis
+    belief_plots_dir = joinpath(output_dir, "belief_evolution_plots")
+    mkpath(belief_plots_dir)
+    
+    # Load detailed data from JSON files
+    detailed_data_dir = joinpath(experiment_dir, "detailed_data")
+    if !isdir(detailed_data_dir)
+        println("Warning: No detailed_data directory found. Skipping belief evolution plots.")
+        return
+    end
+    
+    # Load problem configurations to determine POMDP vs MOMDP
+    config_path = joinpath(experiment_dir, "experiment_config.json")
+    config = JSON.parsefile(config_path)
+    problem_sizes = config["problem_sizes"]
+    
+    # Process each problem size
+    for (size_name, size_config) in problem_sizes
+        size_plots_dir = joinpath(belief_plots_dir, size_name)
+        mkpath(size_plots_dir)
+        
+        size_data_dir = joinpath(detailed_data_dir, size_name)
+        if !isdir(size_data_dir)
+            continue
+        end
+        
+        # Get POMDP parameters for this size
+        min_end_time = size_config["min_end_time"]
+        max_end_time = size_config["max_end_time"]
+        
+        # Process each solver
+        for solver_name in readdir(size_data_dir)
+            solver_data_dir = joinpath(size_data_dir, solver_name)
+            if !isdir(solver_data_dir)
+                continue
+            end
+            
+            solver_plots_dir = joinpath(size_plots_dir, solver_name)
+            mkpath(solver_plots_dir)
+            
+            # Determine if this is MOMDP
+            is_momdp = uppercase(solver_name) == "MOMDP_SARSOP"
+            
+            # Find detailed batch files
+            batch_files = filter(f -> startswith(f, "detailed_batch"), readdir(solver_data_dir))
+            
+            plot_count = 0
+            max_plots = 999  # Limit number of plots per solver
+            
+            for batch_file in batch_files
+                if plot_count >= max_plots
+                    break
+                end
+                
+                batch_path = joinpath(solver_data_dir, batch_file)
+                try
+                    batch_data = JSON.parsefile(batch_path)
+                    
+                    for detailed_metrics in batch_data
+                        if plot_count >= max_plots
+                            break
+                        end
+                        
+                        # Extract belief history and run details
+                        serialized_belief_history = get(detailed_metrics, "belief_history", nothing)
+                        
+                        if serialized_belief_history === nothing
+                            println("Warning: No belief_history found for $(solver_name) run $(detailed_metrics["simulation_id"])")
+                            continue
+                        end
+                        
+                        # Debug: Check belief history structure
+                        # println("Debug: Found belief history with $(length(serialized_belief_history)) timesteps for $(solver_name) run $(detailed_metrics["simulation_id"])")
+                        
+                        belief_history = deserialize_belief_history(serialized_belief_history, is_momdp)
+                        run_details = detailed_metrics["iterations"]
+                        
+                        if belief_history === nothing || isempty(belief_history)
+                            println("Warning: Belief history is empty after deserialization for $(solver_name) run $(detailed_metrics["simulation_id"])")
+                            continue
+                        end
+                        
+                        # Debug: Check first belief structure
+                        # first_belief = belief_history[1]
+                        # if first_belief !== nothing
+                        #     if isa(first_belief, Dict) && haskey(first_belief, :states)
+                        #         println("Debug: First belief has $(length(first_belief[:states])) states")
+                        #     else
+                        #         println("Debug: First belief structure: $(typeof(first_belief))")
+                        #     end
+                        # end
+                        
+                        true_end_time = run_details[1]["Tt"]
+                        
+                        try
+                            # Create 2D belief evolution plot with actions
+                            p = plot_2d_belief_evolution_with_actions(
+                                belief_history,
+                                run_details,
+                                true_end_time,
+                                min_end_time,
+                                max_end_time,
+                                title_prefix="$solver_name - Run $(detailed_metrics["simulation_id"]) - ",
+                                is_momdp=is_momdp,
+                                show_legend=(uppercase(solver_name) == "OBSERVEDTIME")  # Only show legend for OBSERVEDTIME
+                            )
+                            
+                            if p !== nothing
+                                # Generate plots for png, pdf, and svg formats
+                                filename = "belief_evolution_run_$(lpad(detailed_metrics["simulation_id"], 3, '0'))"
+                                Plots.savefig(p, joinpath(solver_plots_dir, "$filename.png"))
+                                Plots.savefig(p, joinpath(solver_plots_dir, "$filename.pdf"))
+                                Plots.savefig(p, joinpath(solver_plots_dir, "$filename.svg"))
+                                plot_count += 1  # Only increment on successful plot creation
+                            end
+                        catch plot_error
+                            println("Warning: Could not create belief plot for $(solver_name) run $(detailed_metrics["simulation_id"]): $plot_error")
+                            continue
+                        end
+                    end
+                catch batch_error
+                    println("Warning: Could not load detailed batch file $batch_file for $solver_name: $batch_error")
+                    continue
+                end
+            end
+            
+            if plot_count > 0
+                println("  Generated $plot_count belief evolution plots for $solver_name ($size_name)")
+            else
+                println("  No belief evolution plots generated for $solver_name ($size_name)")
+            end
+        end
+    end
+end
+
+"""
+Enhanced 2D belief evolution plot with actions and optional legend control.
+"""
+function plot_2d_belief_evolution_with_actions(belief_history, run_details, true_end_time, min_end_time, max_end_time; title_prefix="", is_momdp=false, show_legend=true)
+    # Create the base 2D belief evolution plot
+    p = plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, max_end_time, title_prefix=title_prefix, is_momdp=is_momdp)
+    
+    if p === nothing
+        return nothing
+    end
+    
+    # Extract timesteps and announced times from run details
+    timesteps = [step["timestep"] for step in run_details]
+    announced_times = [step["action"] for step in run_details]
+    
+    # Overlay the announced time trajectory
+    Plots.plot!(p,
+        timesteps[2:end],  # Skip the first timestep for better alignment
+        announced_times[2:end],  # Skip the first action for better alignment
+        label = show_legend ? "Announced Time" : nothing,
+        color = :white,
+        linewidth = 3,
+        marker = :circle,
+        markersize = 4,
+        markerstrokecolor = :black,
+        markerstrokewidth = 1
+    )
+    
+    # Also overlay observations if available
+    if haskey(run_details[1], "To")
+        observations = [step["To"] for step in run_details]
+        Plots.scatter!(p,
+            timesteps,
+            observations,
+            label = show_legend ? "Observations" : nothing,
+            color = :yellow,
+            marker = :diamond,
+            markersize = 5,
+            markerstrokecolor = :black,
+            markerstrokewidth = 1
+        )
+    end
+    
+    # Control legend display
+    if !show_legend
+        Plots.plot!(p, legend = false)
+    else
+        Plots.plot!(p, legend = :topleft)
+    end
+    
+    return p
+end
+
+"""
+Generate 2D belief evolution heatmap.
+"""
+function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, max_end_time; title_prefix="", is_momdp=false)
+    if belief_history === nothing || isempty(belief_history)
+        @warn "No belief history available for 2D belief evolution plot"
+        return nothing
+    end
+    
+    # Ensure we're using the GR backend for heatmaps
+    gr()
+    
+    num_timesteps = length(belief_history)
+    possible_end_times = collect(min_end_time:max_end_time)
+    num_end_times = length(possible_end_times)
+    
+    # Initialize probability matrix: rows = end times, columns = timesteps
+    prob_matrix = zeros(Float64, num_end_times, num_timesteps)
+    
+    # Fill the probability matrix
+    for (timestep_idx, belief) in enumerate(belief_history)
+        if belief === nothing
+            continue
+        end
+        
+        states, probs = extract_belief_states_and_probs_local(belief)
+        
+        if isempty(states) || isempty(probs)
+            continue
+        end
+        
+        # Debug: Print belief info for first few timesteps
+        if timestep_idx <= 3
+            # println("Debug: Timestep $timestep_idx has $(length(states)) states with probabilities: $(probs[1:min(3,end)])")
+        end
+        
+        # Aggregate probabilities by true end time (Tt)
+        end_time_probs = Dict{Int, Float64}()
+        for (state, prob) in zip(states, probs)
+            if is_momdp
+                Tt = state  # For MOMDP, state is just the true end time
+            else
+                # For standard POMDP, state is a tuple (t, Ta, Tt)
+                if isa(state, Tuple) && length(state) >= 3
+                    Tt = state[3]
+                else
+                    println("Warning: Unexpected state format: $state")
+                    continue
+                end
+            end
+            
+            # Only include end times within our range
+            if Tt >= min_end_time && Tt <= max_end_time
+                end_time_probs[Tt] = get(end_time_probs, Tt, 0.0) + prob
+            end
+        end
+        
+        # Fill the matrix column for this timestep
+        for (end_time_idx, end_time) in enumerate(possible_end_times)
+            prob_matrix[end_time_idx, timestep_idx] = get(end_time_probs, end_time, 0.0)
+        end
+        
+        # Debug: Print column sum for first few timesteps
+        if timestep_idx <= 3
+            col_sum = sum(prob_matrix[:, timestep_idx])
+            max_prob = maximum(prob_matrix[:, timestep_idx])
+            # println("Debug: Timestep $timestep_idx - Column sum: $col_sum, Max prob: $max_prob")
+        end
+    end
+    
+    # Debug: Print overall matrix statistics
+    total_nonzero = count(x -> x > 0, prob_matrix)
+    max_prob_overall = maximum(prob_matrix)
+    min_prob_overall = minimum(prob_matrix)
+    # println("Debug: Matrix has $total_nonzero non-zero entries, range: [$min_prob_overall, $max_prob_overall]")
+    
+    # If matrix is all zeros or uniform, there's an issue
+    if max_prob_overall == 0.0
+        println("Warning: Probability matrix is all zeros - belief history may not be properly deserialized")
+        return nothing
+    end
+    
+    # Create timestep labels (starting from 0)
+    timestep_labels = collect(0:(num_timesteps-1))
+    
+    # Create the heatmap using Plots.heatmap explicitly
+    p = Plots.heatmap(
+        timestep_labels,
+        possible_end_times,
+        prob_matrix,
+        title = "$(title_prefix)2D Belief Evolution Over Time",
+        xlabel = "Simulation Time (t)",
+        ylabel = "True End Time (Tt)",
+        color = :viridis,
+        aspect_ratio = :auto,
+        size = (800, 600),
+        colorbar_title = "Probability"
+    )
+    
+    # Add a horizontal line for the actual true end time
+    Plots.hline!(p, [true_end_time], 
+           label = "True End Time", 
+           color = :red, 
+           linewidth = 3, 
+           linestyle = :dash)
+
+    # Ensure proper tick spacing for readability
+    Plots.plot!(p,
+        xticks = (0:2:maximum(timestep_labels), 0:2:maximum(timestep_labels)),
+        yticks = (min_end_time:2:max_end_time, min_end_time:2:max_end_time)
+    )
+    
+    return p
 end
 
 """
@@ -167,15 +559,14 @@ function create_latex_statistics_table(df::DataFrame, filepath::String)
 end
 
 """
-Create additional statistics plots with consistent solver ordering
+Create additional statistics plots
 """
 function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_dir)
     stats_plot_dir = joinpath(output_dir, "statistics_plots")
     mkpath(stats_plot_dir)
     
-    # Sort problem sizes and solvers consistently
+    # Sort problem sizes consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
-    sorted_solvers = sort_solvers(solvers)
     
     # Plot average number of changes
     p1 = Plots.plot(title = "Average Number of Announcement Changes",
@@ -184,47 +575,44 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
               size = (800, 600);
               PLOT_SETTINGS...)
     
-    for solver in sorted_solvers
+    for solver in solvers
         solver_data = filter(row -> row["Solver"] == solver, df)
-        if !isempty(solver_data)
-            y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Avg Announcement Changes"][1] 
-                      for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
-            x_data = [size for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
-            
-            plot!(p1, x_data, y_data,
-                  label = solver, 
-                  marker = :circle, 
-                  markersize = 6,
-                  linewidth = 2,
-                  color = get_solver_color(solver))
-        end
+        y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Avg Announcement Changes"][1] 
+                  for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
+        x_data = [size for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
+        
+        plot!(p1, x_data, y_data,
+              label = solver, 
+              marker = :circle, 
+              markersize = 6,
+              linewidth = 2,
+              color = get_solver_color(solver))
     end
     
     Plots.savefig(p1, joinpath(stats_plot_dir, "avg_announcement_changes.svg"))
     Plots.savefig(p1, joinpath(stats_plot_dir, "avg_announcement_changes.pdf"))
     
     
-    # Plot average final error
+    # Plot average final error with legend positioned in middle right
     p2 = Plots.plot(title = "Average Final Error",
               xlabel = "Problem Size",
               ylabel = "Average Error", 
-              size = (800, 600);
-              PLOT_SETTINGS...)
+              size = (800, 600),
+              legend = :right;  # BEGIN CHANGES: Updated legend position to middle right
+              PLOT_SETTINGS...)  # END CHANGES
     
-    for solver in sorted_solvers
+    for solver in solvers
         solver_data = filter(row -> row["Solver"] == solver, df)
-        if !isempty(solver_data)
-            y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Avg Final Error"][1]
-                      for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
-            x_data = [size for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
-            
-            plot!(p2, x_data, y_data,
-                  label = solver,
-                  marker = :circle,
-                  markersize = 6, 
-                  linewidth = 2,
-                  color = get_solver_color(solver))
-        end
+        y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Avg Final Error"][1]
+                  for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
+        x_data = [size for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
+        
+        plot!(p2, x_data, y_data,
+              label = solver,
+              marker = :circle,
+              markersize = 6, 
+              linewidth = 2,
+              color = get_solver_color(solver))
     end
     
     Plots.savefig(p2, joinpath(stats_plot_dir, "avg_final_error.svg"))
@@ -237,20 +625,18 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
               size = (800, 600);
               PLOT_SETTINGS...)
     
-    for solver in sorted_solvers
+    for solver in solvers
         solver_data = filter(row -> row["Solver"] == solver, df)
-        if !isempty(solver_data)
-            y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Incorrect Final (%)"][1]
-                      for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
-            x_data = [size for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
-            
-            plot!(p3, x_data, y_data,
-                  label = solver,
-                  marker = :circle,
-                  markersize = 6,
-                  linewidth = 2,
-                  color = get_solver_color(solver))
-        end
+        y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Incorrect Final (%)"][1]
+                  for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
+        x_data = [size for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
+        
+        plot!(p3, x_data, y_data,
+              label = solver,
+              marker = :circle,
+              markersize = 6,
+              linewidth = 2,
+              color = get_solver_color(solver))
     end
     
     Plots.savefig(p3, joinpath(stats_plot_dir, "incorrect_predictions.svg"))
@@ -258,7 +644,7 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
 end
 
 """
-Generate combined visualizations for the paper with consistent solver ordering
+Generate combined visualizations for the paper
 """
 function generate_combined_plots(results, problem_sizes, solvers, output_dir)
     println("Generating combined visualizations...")
@@ -266,9 +652,8 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
     combined_dir = joinpath(output_dir, "combined_plots")
     mkpath(combined_dir)
     
-    # Sort problem sizes and solvers consistently
+    # Sort problem sizes consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
-    sorted_solvers = sort_solvers(solvers)
     
     # Create a 2x2 subplot of key metrics
     p1 = Plots.plot(title = "Mean Reward", 
@@ -289,7 +674,7 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
                     ylabel = "Time (seconds)";
                     PLOT_SETTINGS...)
     
-    for solver in sorted_solvers
+    for solver in solvers
         # Collect data across problem sizes
         mean_rewards = []
         error_rates = []
@@ -314,22 +699,20 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
             end
         end
         
-        if !isempty(available_sizes)
-            solver_color = get_solver_color(solver)
-            
-            plot!(p1, available_sizes, mean_rewards, 
-                  label = solver, marker = :circle, markersize = 6, 
-                  linewidth = 2, color = solver_color)
-            plot!(p2, available_sizes, error_rates, 
-                  label = solver, marker = :circle, markersize = 6, 
-                  linewidth = 2, color = solver_color)
-            plot!(p3, available_sizes, avg_changes, 
-                  label = solver, marker = :circle, markersize = 6, 
-                  linewidth = 2, color = solver_color)
-            plot!(p4, available_sizes, policy_times, 
-                  label = solver, marker = :circle, markersize = 6, 
-                  linewidth = 2, color = solver_color)
-        end
+        solver_color = get_solver_color(solver)
+        
+        plot!(p1, available_sizes, mean_rewards, 
+              label = solver, marker = :circle, markersize = 6, 
+              linewidth = 2, color = solver_color)
+        plot!(p2, available_sizes, error_rates, 
+              label = solver, marker = :circle, markersize = 6, 
+              linewidth = 2, color = solver_color)
+        plot!(p3, available_sizes, avg_changes, 
+              label = solver, marker = :circle, markersize = 6, 
+              linewidth = 2, color = solver_color)
+        plot!(p4, available_sizes, policy_times, 
+              label = solver, marker = :circle, markersize = 6, 
+              linewidth = 2, color = solver_color)
     end
     
     xlabel!(p1, "Problem Size")
@@ -393,7 +776,7 @@ function reconstruct_from_detailed_data(experiment_dir::String)
             for batch_file in consolidated_files
                 batch_path = joinpath(solver_dir, batch_file)
                 try
-                    batch_data = JSON.parsefile(batch_files)
+                    batch_data = JSON.parsefile(batch_path)
                     if haskey(batch_data, "metrics")
                         metrics = batch_data["metrics"]
                         for (key, values) in aggregated_metrics
@@ -419,16 +802,15 @@ end
 function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
     println("Generating reward analysis...")
     
-    # Sort problem sizes and solvers consistently
+    # Sort problem sizes consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
-    sorted_solvers = sort_solvers(solvers)
     
-    # Prepare data for table with consistent ordering
+    # Prepare data for table
     table_data = []
     
-    # Collect data by problem size and solver (in correct order)
+    # Collect data by problem size
     for size in sorted_sizes
-        for solver in sorted_solvers
+        for solver in solvers
             if haskey(results[size], solver)
                 solver_data = results[size][solver]
                 
@@ -470,14 +852,11 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
     # Create formatted LaTeX table
     create_latex_reward_table(df, joinpath(output_dir, "reward_table.tex"))
     
-    # Create bar plot with error bars for each problem size (with consistent solver ordering)
+    # Create bar plot with error bars for each problem size
     for size in sorted_sizes
         size_df = filter(row -> row["Problem Size"] == size, df)
         
         if !isempty(size_df)
-            # Sort the data by solver order
-            size_df = sort(size_df, :Solver, by=x -> findfirst(==(x), sorted_solvers))
-            
             p = Plots.bar(
                 size_df[!, "Solver"],
                 size_df[!, "Mean Reward"],
@@ -497,14 +876,18 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
         end
     end
     
-    # Combined plot across all problem sizes with consistent solver ordering
-    gr()  # Use GR backend for grouped bar charts
+    # Combined plot across all problem sizes - IMPROVED VERSION
+    # Use GR backend for grouped bar charts
+    current_backend = Plots.backend()
+    gr()  
     
     # Reshape data for grouped bar chart with consistent ordering
-    mean_matrix = zeros(length(sorted_solvers), length(sorted_sizes))
-    std_matrix = zeros(length(sorted_solvers), length(sorted_sizes))
+    unique_solvers = sort(unique(df[!, "Solver"]))
     
-    for (i, solver) in enumerate(sorted_solvers)
+    mean_matrix = zeros(length(unique_solvers), length(sorted_sizes))
+    std_matrix = zeros(length(unique_solvers), length(sorted_sizes))
+    
+    for (i, solver) in enumerate(unique_solvers)
         for (j, size) in enumerate(sorted_sizes)
             solver_data = filter(row -> row["Solver"] == solver && row["Problem Size"] == size, df)
             if !isempty(solver_data)
@@ -514,15 +897,15 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
         end
     end
     
-    # Create color palette with consistent colors and ordering
-    solver_colors = [get_solver_color(solver) for solver in sorted_solvers]
+    # Create color palette with consistent colors
+    solver_colors = [get_solver_color(solver) for solver in unique_solvers]
     
     p_combined = groupedbar(
         mean_matrix',
         bar_position = :dodge,
         bar_width = 0.7,
-        yerr = std_matrix',  # Error bars indicate +/- standard deviation
-        labels = reshape(sorted_solvers, 1, :),
+        yerr = std_matrix',  # YES, these lines indicate +/- standard deviation
+        labels = reshape(unique_solvers, 1, :),
         xticks = (1:length(sorted_sizes), sorted_sizes),
         title = "Mean Reward Comparison Across Problem Sizes",
         xlabel = "Problem Size",
@@ -535,11 +918,16 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
     Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.svg"))
     Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.pdf"))
     
+    # Restore previous backend
+    if current_backend != Plots.GRBackend()
+        eval(current_backend.backend_name)()
+    end
+    
     println("Note: Error bars in reward comparison plots indicate ± standard deviation")
 end
 
 """
-Enhanced histogram generation with improved formatting and consistent solver ordering.
+Enhanced histogram generation with improved formatting.
 """
 function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
     println("Generating reward histograms...")
@@ -547,13 +935,12 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
     hist_dir = joinpath(output_dir, "histograms")
     mkpath(hist_dir)
     
-    # Sort problem sizes and solvers consistently
+    # Sort problem sizes consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
-    sorted_solvers = sort_solvers(solvers)
     
-    # Individual histograms for each problem size and solver 
+    # Individual histograms for each problem size and solver
     for size in sorted_sizes
-        for solver in sorted_solvers
+        for solver in solvers
             if haskey(results[size], solver)
                 solver_data = results[size][solver]
                 
@@ -593,7 +980,7 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
         end
     end
     
-    # Combined histograms by problem size (with consistent solver ordering)
+    # Combined histograms by problem size
     for size in sorted_sizes
         p = Plots.plot(
             title = "Reward Distributions - $size Problem",
@@ -604,7 +991,7 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
         )
         
         plot_created = false
-        for solver in sorted_solvers
+        for solver in solvers
             if haskey(results[size], solver)
                 solver_data = results[size][solver]
                 rewards = get(solver_data, "rewards", [])
@@ -631,20 +1018,19 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
 end
 
 """
-Generate comprehensive statistics table with consistent solver ordering
+Generate comprehensive statistics table
 """
 function generate_statistics_table(results, problem_sizes, solvers, output_dir)
     println("Generating statistics table...")
     
-    # Sort problem sizes and solvers consistently
+    # Sort problem sizes consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
-    sorted_solvers = sort_solvers(solvers)
     
-    # Collect all statistics in correct order
+    # Collect all statistics
     stats_data = []
     
     for size in sorted_sizes
-        for solver in sorted_solvers
+        for solver in solvers
             if haskey(results[size], solver)
                 solver_results = results[size][solver]
                 
@@ -684,8 +1070,8 @@ function generate_statistics_table(results, problem_sizes, solvers, output_dir)
     # Create LaTeX table
     create_latex_statistics_table(df, joinpath(output_dir, "statistics_table.tex"))
     
-    # Create summary plots with consistent ordering
-    create_statistics_plots(df, sorted_sizes, sorted_solvers, output_dir)
+    # Create summary plots
+    create_statistics_plots(df, sorted_sizes, solvers, output_dir)
 end
 
 """
@@ -785,6 +1171,9 @@ function analyze_results(experiment_dir::String; output_dir::Union{String, Nothi
     end
     mkpath(output_dir)
     
+    # Set default backend to GR for consistency
+    gr()
+    
     # Load experiment configuration
     config_path = joinpath(experiment_dir, "experiment_config.json")
     if !isfile(config_path)
@@ -810,16 +1199,11 @@ function analyze_results(experiment_dir::String; output_dir::Union{String, Nothi
         solvers = collect(keys(first_size))
     end
     
-    # Sort for consistent presentation
-    sorted_sizes = sort_problem_sizes(problem_sizes)
-    sorted_solvers = sort_solvers(solvers)
-    
     println("Analyzing results for:")
-    println("  Problem sizes: $(join(sorted_sizes, ", "))")
-    println("  Solvers: $(join(sorted_solvers, ", "))")
+    println("  Problem sizes: $(join(sort_problem_sizes(problem_sizes), ", "))")
+    println("  Solvers: $(join(solvers, ", "))")
     println("  Data structure: $(haskey(config, "save_frequency") ? "Incremental" : "Legacy")")
     println("  Output format: SVG and PDF (high quality)")
-    println("  Font: Computer Modern (LaTeX serif)")
     println()
     
     # 1. Generate reward comparison table and plots
@@ -837,8 +1221,12 @@ function analyze_results(experiment_dir::String; output_dir::Union{String, Nothi
     # 5. Generate memory usage report if available
     generate_memory_report(experiment_dir, output_dir)
     
+    # BEGIN CHANGES: Generate belief evolution plots from JSON data
+    # 6. Generate belief evolution plots from experiment JSON data (new feature)
+    generate_belief_evolution_plots_from_json(experiment_dir, output_dir)
+    # END CHANGES
+    
     println("\nAnalysis complete! Results saved to: $output_dir")
-    println("All plots use consistent solver ordering: $(join(sorted_solvers, " > "))")
 end
 
 # Main execution with enhanced error handling
