@@ -1,7 +1,7 @@
 #!/usr/bin/env julia
 
 # Generate all plots and tables for the paper - works with incremental data structure
-# IMPROVED VERSION with better formatting, consistent colors, and higher quality outputs
+# IMPROVED VERSION with consistent solver ordering and LaTeX serif fonts
 
 using Pkg
 push!(LOAD_PATH, dirname(dirname(@__FILE__)))
@@ -16,8 +16,9 @@ using Printf
 using DataFrames
 using CSV
 
-# Define consistent problem size ordering and color scheme
+# Define consistent problem size and solver ordering
 const PROBLEM_SIZE_ORDER = ["small", "medium", "large", "xlarge"]
+const SOLVER_ORDER = ["OBSERVEDTIME", "MOSTLIKELY", "QMDP", "MOMDP_SARSOP"]
 const SOLVER_COLORS = Dict(
     "OBSERVEDTIME" => :blue,
     "MOSTLIKELY" => :red, 
@@ -29,13 +30,14 @@ const SOLVER_COLORS = Dict(
     "PBVI" => :gray
 )
 
-# Global plot settings for consistent formatting
+# Global plot settings for consistent formatting with LaTeX serif fonts
 const PLOT_SETTINGS = Dict(
     :titlefontsize => 16,
     :labelfontsize => 14,
     :tickfontsize => 12,
     :legendfontsize => 12,
     :guidefontsize => 14,
+    :fontfamily => "Computer Modern",  # LaTeX default serif font
     :left_margin => 15Plots.mm,
     :bottom_margin => 12Plots.mm,
     :right_margin => 10Plots.mm,
@@ -59,6 +61,17 @@ function sort_problem_sizes(sizes::Vector{String})
     # Add any unexpected sizes at the end
     unexpected_sizes = filter(s -> !(s in PROBLEM_SIZE_ORDER), sizes)
     return vcat(existing_sizes, sort(unexpected_sizes))
+end
+
+"""
+Sort solvers in the correct order for consistent presentation.
+"""
+function sort_solvers(solvers::Vector{Any})
+    # Filter to only include solvers that exist in our data
+    existing_solvers = filter(s -> s in solvers, SOLVER_ORDER)
+    # Add any unexpected solvers at the end
+    unexpected_solvers = filter(s -> !(s in SOLVER_ORDER), solvers)
+    return vcat(existing_solvers, sort(unexpected_solvers))
 end
 
 """
@@ -154,14 +167,15 @@ function create_latex_statistics_table(df::DataFrame, filepath::String)
 end
 
 """
-Create additional statistics plots.
+Create additional statistics plots with consistent solver ordering
 """
 function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_dir)
     stats_plot_dir = joinpath(output_dir, "statistics_plots")
     mkpath(stats_plot_dir)
     
-    # Sort problem sizes consistently
+    # Sort problem sizes and solvers consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
+    sorted_solvers = sort_solvers(solvers)
     
     # Plot average number of changes
     p1 = Plots.plot(title = "Average Number of Announcement Changes",
@@ -170,32 +184,25 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
               size = (800, 600);
               PLOT_SETTINGS...)
     
-    for solver in solvers
+    for solver in sorted_solvers
         solver_data = filter(row -> row["Solver"] == solver, df)
         if !isempty(solver_data)
-            y_data = []
-            x_data = []
-            for size in sorted_sizes
-                size_data = solver_data[solver_data[!, "Problem Size"] .== size, :]
-                if !isempty(size_data)
-                    push!(y_data, size_data[1, "Avg Announcement Changes"])
-                    push!(x_data, size)
-                end
-            end
+            y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Avg Announcement Changes"][1] 
+                      for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
+            x_data = [size for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
             
-            if !isempty(x_data)
-                plot!(p1, x_data, y_data,
-                      label = solver, 
-                      marker = :circle, 
-                      markersize = 6,
-                      linewidth = 2,
-                      color = get_solver_color(solver))
-            end
+            plot!(p1, x_data, y_data,
+                  label = solver, 
+                  marker = :circle, 
+                  markersize = 6,
+                  linewidth = 2,
+                  color = get_solver_color(solver))
         end
     end
     
     Plots.savefig(p1, joinpath(stats_plot_dir, "avg_announcement_changes.svg"))
     Plots.savefig(p1, joinpath(stats_plot_dir, "avg_announcement_changes.pdf"))
+    
     
     # Plot average final error
     p2 = Plots.plot(title = "Average Final Error",
@@ -204,27 +211,19 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
               size = (800, 600);
               PLOT_SETTINGS...)
     
-    for solver in solvers
+    for solver in sorted_solvers
         solver_data = filter(row -> row["Solver"] == solver, df)
         if !isempty(solver_data)
-            y_data = []
-            x_data = []
-            for size in sorted_sizes
-                size_data = solver_data[solver_data[!, "Problem Size"] .== size, :]
-                if !isempty(size_data)
-                    push!(y_data, size_data[1, "Avg Final Error"])
-                    push!(x_data, size)
-                end
-            end
+            y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Avg Final Error"][1]
+                      for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
+            x_data = [size for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
             
-            if !isempty(x_data)
-                plot!(p2, x_data, y_data,
-                      label = solver,
-                      marker = :circle,
-                      markersize = 6, 
-                      linewidth = 2,
-                      color = get_solver_color(solver))
-            end
+            plot!(p2, x_data, y_data,
+                  label = solver,
+                  marker = :circle,
+                  markersize = 6, 
+                  linewidth = 2,
+                  color = get_solver_color(solver))
         end
     end
     
@@ -238,27 +237,19 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
               size = (800, 600);
               PLOT_SETTINGS...)
     
-    for solver in solvers
+    for solver in sorted_solvers
         solver_data = filter(row -> row["Solver"] == solver, df)
         if !isempty(solver_data)
-            y_data = []
-            x_data = []
-            for size in sorted_sizes
-                size_data = solver_data[solver_data[!, "Problem Size"] .== size, :]
-                if !isempty(size_data)
-                    push!(y_data, size_data[1, "Incorrect Final (%)"])
-                    push!(x_data, size)
-                end
-            end
+            y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Incorrect Final (%)"][1]
+                      for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
+            x_data = [size for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
             
-            if !isempty(x_data)
-                plot!(p3, x_data, y_data,
-                      label = solver,
-                      marker = :circle,
-                      markersize = 6,
-                      linewidth = 2,
-                      color = get_solver_color(solver))
-            end
+            plot!(p3, x_data, y_data,
+                  label = solver,
+                  marker = :circle,
+                  markersize = 6,
+                  linewidth = 2,
+                  color = get_solver_color(solver))
         end
     end
     
@@ -267,7 +258,7 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
 end
 
 """
-Generate combined visualizations for the paper with improved formatting.
+Generate combined visualizations for the paper with consistent solver ordering
 """
 function generate_combined_plots(results, problem_sizes, solvers, output_dir)
     println("Generating combined visualizations...")
@@ -275,8 +266,9 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
     combined_dir = joinpath(output_dir, "combined_plots")
     mkpath(combined_dir)
     
-    # Sort problem sizes consistently
+    # Sort problem sizes and solvers consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
+    sorted_solvers = sort_solvers(solvers)
     
     # Create a 2x2 subplot of key metrics
     p1 = Plots.plot(title = "Mean Reward", 
@@ -297,83 +289,46 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
                     ylabel = "Time (seconds)";
                     PLOT_SETTINGS...)
     
-    for solver in solvers
-        # Collect data across problem sizes - only for sizes where data exists
-        mean_rewards = Float64[]
-        error_rates = Float64[]
-        avg_changes = Float64[]
-        policy_times = Float64[]
-        available_sizes = String[]
+    for solver in sorted_solvers
+        # Collect data across problem sizes
+        mean_rewards = []
+        error_rates = []
+        avg_changes = []
+        policy_times = []
+        available_sizes = []
         
         for size in sorted_sizes
             if haskey(results, size) && haskey(results[size], solver)
                 solver_results = results[size][solver]
                 
-                # Check if the solver has meaningful data
-                if haskey(solver_results, "rewards") && !isempty(solver_results["rewards"])
-                    push!(mean_rewards, mean(solver_results["rewards"]))
-                    
-                    # Error rate = percentage with final error > 0
-                    if haskey(solver_results, "final_errors") && !isempty(solver_results["final_errors"])
-                        error_rate = 100.0 * count(e -> e > 0, solver_results["final_errors"]) / 
-                                     length(solver_results["final_errors"])
-                        push!(error_rates, error_rate)
-                    else
-                        push!(error_rates, NaN)
-                    end
-                    
-                    if haskey(solver_results, "num_changes") && !isempty(solver_results["num_changes"])
-                        push!(avg_changes, mean(solver_results["num_changes"]))
-                    else
-                        push!(avg_changes, NaN)
-                    end
-                    
-                    push!(policy_times, max(get(solver_results, "policy_solve_time", 0.001), 0.001))
-                    push!(available_sizes, size)
-                end
+                push!(mean_rewards, mean(solver_results["rewards"]))
+                
+                # Error rate = percentage with final error > 0
+                error_rate = 100.0 * count(e -> e > 0, solver_results["final_errors"]) / 
+                             length(solver_results["final_errors"])
+                push!(error_rates, error_rate)
+                
+                push!(avg_changes, mean(solver_results["num_changes"]))
+                push!(policy_times, get(solver_results, "policy_solve_time", 0.001))
+                push!(available_sizes, size)
             end
         end
         
-        # Only plot if we have data
         if !isempty(available_sizes)
             solver_color = get_solver_color(solver)
             
-            # Filter out NaN values for each plot separately
-            if !all(isnan.(mean_rewards))
-                valid_idx = .!isnan.(mean_rewards)
-                if any(valid_idx)
-                    plot!(p1, available_sizes[valid_idx], mean_rewards[valid_idx], 
-                          label = solver, marker = :circle, markersize = 6, 
-                          linewidth = 2, color = solver_color)
-                end
-            end
-            
-            if !all(isnan.(error_rates))
-                valid_idx = .!isnan.(error_rates)
-                if any(valid_idx)
-                    plot!(p2, available_sizes[valid_idx], error_rates[valid_idx], 
-                          label = solver, marker = :circle, markersize = 6, 
-                          linewidth = 2, color = solver_color)
-                end
-            end
-            
-            if !all(isnan.(avg_changes))
-                valid_idx = .!isnan.(avg_changes)
-                if any(valid_idx)
-                    plot!(p3, available_sizes[valid_idx], avg_changes[valid_idx], 
-                          label = solver, marker = :circle, markersize = 6, 
-                          linewidth = 2, color = solver_color)
-                end
-            end
-            
-            if !all(isnan.(policy_times)) && !all(policy_times .<= 0.001)
-                valid_idx = .!isnan.(policy_times) .& (policy_times .> 0.001)
-                if any(valid_idx)
-                    plot!(p4, available_sizes[valid_idx], policy_times[valid_idx], 
-                          label = solver, marker = :circle, markersize = 6, 
-                          linewidth = 2, color = solver_color)
-                end
-            end
+            plot!(p1, available_sizes, mean_rewards, 
+                  label = solver, marker = :circle, markersize = 6, 
+                  linewidth = 2, color = solver_color)
+            plot!(p2, available_sizes, error_rates, 
+                  label = solver, marker = :circle, markersize = 6, 
+                  linewidth = 2, color = solver_color)
+            plot!(p3, available_sizes, avg_changes, 
+                  label = solver, marker = :circle, markersize = 6, 
+                  linewidth = 2, color = solver_color)
+            plot!(p4, available_sizes, policy_times, 
+                  label = solver, marker = :circle, markersize = 6, 
+                  linewidth = 2, color = solver_color)
         end
     end
     
@@ -438,7 +393,7 @@ function reconstruct_from_detailed_data(experiment_dir::String)
             for batch_file in consolidated_files
                 batch_path = joinpath(solver_dir, batch_file)
                 try
-                    batch_data = JSON.parsefile(batch_path)
+                    batch_data = JSON.parsefile(batch_files)
                     if haskey(batch_data, "metrics")
                         metrics = batch_data["metrics"]
                         for (key, values) in aggregated_metrics
@@ -461,21 +416,19 @@ function reconstruct_from_detailed_data(experiment_dir::String)
     return all_results
 end
 
-"""
-Enhanced reward analysis with improved formatting and consistent colors.
-"""
 function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
     println("Generating reward analysis...")
     
-    # Sort problem sizes consistently
+    # Sort problem sizes and solvers consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
+    sorted_solvers = sort_solvers(solvers)
     
-    # Prepare data for table
+    # Prepare data for table with consistent ordering
     table_data = []
     
-    # Collect data by problem size
+    # Collect data by problem size and solver (in correct order)
     for size in sorted_sizes
-        for solver in solvers
+        for solver in sorted_solvers
             if haskey(results[size], solver)
                 solver_data = results[size][solver]
                 
@@ -517,13 +470,13 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
     # Create formatted LaTeX table
     create_latex_reward_table(df, joinpath(output_dir, "reward_table.tex"))
     
-    # Create bar plot with error bars for each problem size
+    # Create bar plot with error bars for each problem size (with consistent solver ordering)
     for size in sorted_sizes
         size_df = filter(row -> row["Problem Size"] == size, df)
         
         if !isempty(size_df)
-            # Sort by solver name for consistency
-            sort!(size_df, :Solver)
+            # Sort the data by solver order
+            size_df = sort(size_df, :Solver, by=x -> findfirst(==(x), sorted_solvers))
             
             p = Plots.bar(
                 size_df[!, "Solver"],
@@ -544,64 +497,49 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
         end
     end
     
-    # Combined plot across all problem sizes - IMPROVED VERSION
+    # Combined plot across all problem sizes with consistent solver ordering
     gr()  # Use GR backend for grouped bar charts
     
     # Reshape data for grouped bar chart with consistent ordering
-    unique_solvers = sort(unique(df[!, "Solver"]))
+    mean_matrix = zeros(length(sorted_solvers), length(sorted_sizes))
+    std_matrix = zeros(length(sorted_solvers), length(sorted_sizes))
     
-    # Only include sizes that have data for at least one solver
-    available_sizes = [size for size in sorted_sizes if any(row -> row["Problem Size"] == size, eachrow(df))]
-    
-    mean_matrix = zeros(length(unique_solvers), length(available_sizes))
-    std_matrix = zeros(length(unique_solvers), length(available_sizes))
-    
-    for (i, solver) in enumerate(unique_solvers)
-        for (j, size) in enumerate(available_sizes)
+    for (i, solver) in enumerate(sorted_solvers)
+        for (j, size) in enumerate(sorted_sizes)
             solver_data = filter(row -> row["Solver"] == solver && row["Problem Size"] == size, df)
             if !isempty(solver_data)
                 mean_matrix[i, j] = solver_data[1, "Mean Reward"]
                 std_matrix[i, j] = solver_data[1, "Std Dev"]
-            else
-                # Use NaN for missing data - Plots.jl will handle this correctly
-                mean_matrix[i, j] = NaN
-                std_matrix[i, j] = NaN
             end
         end
     end
     
-    # Filter out solvers that have no data at all
-    has_data = [!all(isnan.(mean_matrix[i, :])) for i in 1:length(unique_solvers)]
-    filtered_solvers = unique_solvers[has_data]
-    filtered_mean_matrix = mean_matrix[has_data, :]
-    filtered_std_matrix = std_matrix[has_data, :]
+    # Create color palette with consistent colors and ordering
+    solver_colors = [get_solver_color(solver) for solver in sorted_solvers]
     
-    if !isempty(filtered_solvers) && !isempty(available_sizes)
-        p_combined = groupedbar(
-            filtered_mean_matrix',
-            bar_position = :dodge,
-            bar_width = 0.7,
-            yerr = filtered_std_matrix',  # YES, these lines indicate +/- standard deviation
-            labels = reshape(filtered_solvers, 1, :),
-            xticks = (1:length(available_sizes), available_sizes),
-            title = "Mean Reward Comparison Across Problem Sizes",
-            xlabel = "Problem Size",
-            ylabel = "Mean Reward",
-            size = (1200, 700),
-            legend = :bottomleft;
-            PLOT_SETTINGS...)
-        
-        Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.svg"))
-        Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.pdf"))
-    end
+    p_combined = groupedbar(
+        mean_matrix',
+        bar_position = :dodge,
+        bar_width = 0.7,
+        yerr = std_matrix',  # Error bars indicate +/- standard deviation
+        labels = reshape(sorted_solvers, 1, :),
+        xticks = (1:length(sorted_sizes), sorted_sizes),
+        title = "Mean Reward Comparison Across Problem Sizes",
+        xlabel = "Problem Size",
+        ylabel = "Mean Reward",
+        size = (1200, 700),
+        legend = :bottomleft,
+        color = reshape(solver_colors, 1, :);
+        PLOT_SETTINGS...)
+    
+    Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.svg"))
+    Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.pdf"))
     
     println("Note: Error bars in reward comparison plots indicate ± standard deviation")
-    println("Analysis complete!")
-    println()
 end
 
 """
-Enhanced histogram generation.
+Enhanced histogram generation with improved formatting and consistent solver ordering.
 """
 function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
     println("Generating reward histograms...")
@@ -609,106 +547,104 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
     hist_dir = joinpath(output_dir, "histograms")
     mkpath(hist_dir)
     
-    # Sort problem sizes consistently
+    # Sort problem sizes and solvers consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
+    sorted_solvers = sort_solvers(solvers)
     
-    # Individual histograms for each problem size and solver
+    # Individual histograms for each problem size and solver 
     for size in sorted_sizes
-        if haskey(results, size)
-            for solver in solvers
-                if haskey(results[size], solver)
-                    solver_data = results[size][solver]
+        for solver in sorted_solvers
+            if haskey(results[size], solver)
+                solver_data = results[size][solver]
+                
+                # Handle both old and new data formats
+                rewards = if haskey(solver_data, "rewards")
+                    solver_data["rewards"]
+                elseif haskey(solver_data, "total_reward")
+                    [solver_data["total_reward"]]
+                else
+                    continue  # Skip if no reward data
+                end
+                
+                if length(rewards) > 1  # Only create histogram if we have multiple data points
+                    p = Plots.histogram(
+                        rewards,
+                        bins = min(20, length(rewards)),
+                        title = "Reward Distribution - $solver ($size)",
+                        xlabel = "Total Reward",
+                        ylabel = "Frequency",
+                        legend = false,
+                        fillalpha = 0.7,
+                        color = get_solver_color(solver),
+                        size = (800, 600);
+                        PLOT_SETTINGS...
+                    )
                     
-                    # Handle both old and new data formats
-                    rewards = if haskey(solver_data, "rewards")
-                        solver_data["rewards"]
-                    elseif haskey(solver_data, "total_reward")
-                        [solver_data["total_reward"]]
-                    else
-                        continue  # Skip if no reward data
+                    # Add mean and median lines
+                    vline!([mean(rewards)], label = "Mean", linewidth = 2, color = :red)
+                    if length(rewards) > 1
+                        vline!([median(rewards)], label = "Median", linewidth = 2, color = :green, linestyle = :dash)
                     end
                     
-                    if length(rewards) > 1  # Only create histogram if we have multiple data points
-                        p = Plots.histogram(
-                            rewards,
-                            bins = min(20, length(rewards)),
-                            title = "Reward Distribution - $solver ($size)",
-                            xlabel = "Total Reward",
-                            ylabel = "Frequency",
-                            legend = true,
-                            fillalpha = 0.7,
-                            color = get_solver_color(solver),
-                            size = (800, 600);
-                            PLOT_SETTINGS...
-                        )
-                        
-                        # Add mean and median lines
-                        vline!([mean(rewards)], label = "Mean", linewidth = 2, color = :red)
-                        if length(rewards) > 1
-                            vline!([median(rewards)], label = "Median", linewidth = 2, color = :green, linestyle = :dash)
-                        end
-                        
-                        Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).svg"))
-                        Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).pdf"))
-                    end
+                    Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).svg"))
+                    Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).pdf"))
                 end
             end
         end
     end
     
-    # Combined histograms by problem size
+    # Combined histograms by problem size (with consistent solver ordering)
     for size in sorted_sizes
-        if haskey(results, size)
-            p = Plots.plot(
-                title = "Reward Distributions - $size Problem",
-                xlabel = "Total Reward",
-                ylabel = "Frequency",
-                size = (1000, 600);
-                PLOT_SETTINGS...
-            )
-            
-            plot_created = false
-            for solver in solvers
-                if haskey(results[size], solver)
-                    solver_data = results[size][solver]
-                    rewards = get(solver_data, "rewards", [])
-                    
-                    if length(rewards) > 1
-                        Plots.histogram!(
-                            p,
-                            rewards,
-                            bins = min(20, length(rewards)),
-                            alpha = 0.5,
-                            label = solver,
-                            color = get_solver_color(solver)
-                        )
-                        plot_created = true
-                    end
+        p = Plots.plot(
+            title = "Reward Distributions - $size Problem",
+            xlabel = "Total Reward",
+            ylabel = "Frequency",
+            size = (1000, 600);
+            PLOT_SETTINGS...
+        )
+        
+        plot_created = false
+        for solver in sorted_solvers
+            if haskey(results[size], solver)
+                solver_data = results[size][solver]
+                rewards = get(solver_data, "rewards", [])
+                
+                if length(rewards) > 1
+                    Plots.histogram!(
+                        p,
+                        rewards,
+                        bins = min(20, length(rewards)),
+                        alpha = 0.5,
+                        label = solver,
+                        color = get_solver_color(solver)
+                    )
+                    plot_created = true
                 end
             end
-            
-            if plot_created
-                Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.svg"))
-                Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.pdf"))
-            end
+        end
+        
+        if plot_created
+            Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.svg"))
+            Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.pdf"))
         end
     end
 end
 
 """
-Generate comprehensive statistics table.
+Generate comprehensive statistics table with consistent solver ordering
 """
 function generate_statistics_table(results, problem_sizes, solvers, output_dir)
     println("Generating statistics table...")
     
-    # Sort problem sizes consistently
+    # Sort problem sizes and solvers consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
+    sorted_solvers = sort_solvers(solvers)
     
-    # Collect all statistics
+    # Collect all statistics in correct order
     stats_data = []
     
     for size in sorted_sizes
-        for solver in solvers
+        for solver in sorted_solvers
             if haskey(results[size], solver)
                 solver_results = results[size][solver]
                 
@@ -748,8 +684,8 @@ function generate_statistics_table(results, problem_sizes, solvers, output_dir)
     # Create LaTeX table
     create_latex_statistics_table(df, joinpath(output_dir, "statistics_table.tex"))
     
-    # Create summary plots
-    create_statistics_plots(df, sorted_sizes, solvers, output_dir)
+    # Create summary plots with consistent ordering
+    create_statistics_plots(df, sorted_sizes, sorted_solvers, output_dir)
 end
 
 """
@@ -840,7 +776,7 @@ function generate_memory_report(experiment_dir::String, output_dir::String)
 end
 
 """
-Main analysis function.
+Main analysis function
 """
 function analyze_results(experiment_dir::String; output_dir::Union{String, Nothing}=nothing)
     # Use experiment directory for output if not specified
@@ -874,11 +810,16 @@ function analyze_results(experiment_dir::String; output_dir::Union{String, Nothi
         solvers = collect(keys(first_size))
     end
     
+    # Sort for consistent presentation
+    sorted_sizes = sort_problem_sizes(problem_sizes)
+    sorted_solvers = sort_solvers(solvers)
+    
     println("Analyzing results for:")
-    println("  Problem sizes: $(join(sort_problem_sizes(problem_sizes), ", "))")
-    println("  Solvers: $(join(solvers, ", "))")
+    println("  Problem sizes: $(join(sorted_sizes, ", "))")
+    println("  Solvers: $(join(sorted_solvers, ", "))")
     println("  Data structure: $(haskey(config, "save_frequency") ? "Incremental" : "Legacy")")
     println("  Output format: SVG and PDF (high quality)")
+    println("  Font: Computer Modern (LaTeX serif)")
     println()
     
     # 1. Generate reward comparison table and plots
@@ -897,6 +838,7 @@ function analyze_results(experiment_dir::String; output_dir::Union{String, Nothi
     generate_memory_report(experiment_dir, output_dir)
     
     println("\nAnalysis complete! Results saved to: $output_dir")
+    println("All plots use consistent solver ordering: $(join(sorted_solvers, " > "))")
 end
 
 # Main execution with enhanced error handling
@@ -917,7 +859,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
     
     try
         analyze_results(experiment_dir, output_dir=output_dir)
-        println("✓ Analysis completed successfully with improved formatting and fixed warnings")
+        println("✓ Analysis completed successfully")
     catch e
         println("✗ Error during analysis: $e")
         if isa(e, InterruptException)
