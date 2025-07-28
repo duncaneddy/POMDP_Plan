@@ -16,6 +16,8 @@ using Printf
 using DataFrames
 using CSV
 
+const REGEN_BELIEF_HISTORIES = false  # Set to false to skip belief history regeneration
+
 # Define consistent problem size ordering and color scheme
 const PROBLEM_SIZE_ORDER = ["small", "medium", "large", "xlarge"]
 const SOLVER_COLORS = Dict(
@@ -1221,10 +1223,10 @@ function analyze_results(experiment_dir::String; output_dir::Union{String, Nothi
     # 5. Generate memory usage report if available
     generate_memory_report(experiment_dir, output_dir)
     
-    # BEGIN CHANGES: Generate belief evolution plots from JSON data
     # 6. Generate belief evolution plots from experiment JSON data (new feature)
-    generate_belief_evolution_plots_from_json(experiment_dir, output_dir)
-    # END CHANGES
+    if REGEN_BELIEF_HISTORIES == true
+        generate_belief_evolution_plots_from_json(experiment_dir, output_dir)
+    end
     
     println("\nAnalysis complete! Results saved to: $output_dir")
 end
