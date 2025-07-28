@@ -16,10 +16,11 @@ using Printf
 using DataFrames
 using CSV
 
-const REGEN_BELIEF_HISTORIES = false  # Set to false to skip belief history regeneration
+const REGEN_BELIEF_HISTORIES = true  # Set to false to skip belief history regeneration
 
 # Define consistent problem size ordering and color scheme
 const PROBLEM_SIZE_ORDER = ["small", "medium", "large", "xlarge"]
+const SOLVER_ORDER = ["OBSERVEDTIME", "MOSTLIKELY", "QMDP", "CXX_SARSOP", "MOMDP_SARSOP"]
 const SOLVER_COLORS = Dict(
     "OBSERVEDTIME" => :blue,
     "MOSTLIKELY" => :red, 
@@ -42,7 +43,8 @@ const PLOT_SETTINGS = Dict(
     :bottom_margin => 12Plots.mm,
     :right_margin => 10Plots.mm,
     :top_margin => 8Plots.mm,
-    :dpi => 300
+    :dpi => 300,
+    :fontfamily => "Computer Modern"
 )
 
 """
@@ -60,7 +62,19 @@ function sort_problem_sizes(sizes::Vector{String})
     existing_sizes = filter(s -> s in sizes, PROBLEM_SIZE_ORDER)
     # Add any unexpected sizes at the end
     unexpected_sizes = filter(s -> !(s in PROBLEM_SIZE_ORDER), sizes)
+
     return vcat(existing_sizes, sort(unexpected_sizes))
+end
+
+"""
+Sort solvers in the correct order for consistent presentation.
+"""
+function sort_solvers(solvers::Vector{Any})
+    # Filter to only include solvers that exist in our data
+    existing_solvers = filter(s -> s in solvers, SOLVER_ORDER)
+    # Add any unexpected solvers at the end
+    unexpected_solvers = filter(s -> !(s in SOLVER_ORDER), solvers)
+    return vcat(existing_solvers, sort(unexpected_solvers))
 end
 
 """
@@ -306,9 +320,9 @@ function generate_belief_evolution_plots_from_json(experiment_dir::String, outpu
                             if p !== nothing
                                 # Generate plots for png, pdf, and svg formats
                                 filename = "belief_evolution_run_$(lpad(detailed_metrics["simulation_id"], 3, '0'))"
-                                Plots.savefig(p, joinpath(solver_plots_dir, "$filename.png"))
+                                # Plots.savefig(p, joinpath(solver_plots_dir, "$filename.png"))
                                 Plots.savefig(p, joinpath(solver_plots_dir, "$filename.pdf"))
-                                Plots.savefig(p, joinpath(solver_plots_dir, "$filename.svg"))
+                                # Plots.savefig(p, joinpath(solver_plots_dir, "$filename.svg"))
                                 plot_count += 1  # Only increment on successful plot creation
                             end
                         catch plot_error
@@ -474,7 +488,7 @@ function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, m
         timestep_labels,
         possible_end_times,
         prob_matrix,
-        title = "$(title_prefix)2D Belief Evolution Over Time",
+        # title = "$(title_prefix)2D Belief Evolution Over Time",
         xlabel = "Simulation Time (t)",
         ylabel = "True End Time (Tt)",
         color = :viridis,
@@ -569,15 +583,16 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
     
     # Sort problem sizes consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
+    sorted_solvers = sort_solvers(solvers)
     
     # Plot average number of changes
-    p1 = Plots.plot(title = "Average Number of Announcement Changes",
+    p1 = Plots.plot(#title = "Average Number of Announcement Changes",
               xlabel = "Problem Size", 
               ylabel = "Average Changes",
               size = (800, 600);
               PLOT_SETTINGS...)
     
-    for solver in solvers
+    for solver in sorted_solvers
         solver_data = filter(row -> row["Solver"] == solver, df)
         y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Avg Announcement Changes"][1] 
                   for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
@@ -591,12 +606,12 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
               color = get_solver_color(solver))
     end
     
-    Plots.savefig(p1, joinpath(stats_plot_dir, "avg_announcement_changes.svg"))
+    # Plots.savefig(p1, joinpath(stats_plot_dir, "avg_announcement_changes.svg"))
     Plots.savefig(p1, joinpath(stats_plot_dir, "avg_announcement_changes.pdf"))
     
     
     # Plot average final error with legend positioned in middle right
-    p2 = Plots.plot(title = "Average Final Error",
+    p2 = Plots.plot(#title = "Average Final Error",
               xlabel = "Problem Size",
               ylabel = "Average Error", 
               size = (800, 600),
@@ -617,11 +632,11 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
               color = get_solver_color(solver))
     end
     
-    Plots.savefig(p2, joinpath(stats_plot_dir, "avg_final_error.svg"))
+    # Plots.savefig(p2, joinpath(stats_plot_dir, "avg_final_error.svg"))
     Plots.savefig(p2, joinpath(stats_plot_dir, "avg_final_error.pdf"))
     
     # Plot percentage of incorrect final predictions
-    p3 = Plots.plot(title = "Percentage of Incorrect Final Predictions",
+    p3 = Plots.plot(#title = "Percentage of Incorrect Final Predictions",
               xlabel = "Problem Size",
               ylabel = "Incorrect (%)",
               size = (800, 600);
@@ -641,7 +656,7 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
               color = get_solver_color(solver))
     end
     
-    Plots.savefig(p3, joinpath(stats_plot_dir, "incorrect_predictions.svg"))
+    # Plots.savefig(p3, joinpath(stats_plot_dir, "incorrect_predictions.svg"))
     Plots.savefig(p3, joinpath(stats_plot_dir, "incorrect_predictions.pdf"))
 end
 
@@ -656,27 +671,28 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
     
     # Sort problem sizes consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
+    sorted_solvers = sort_solvers(solvers)
     
     # Create a 2x2 subplot of key metrics
-    p1 = Plots.plot(title = "Mean Reward", 
+    p1 = Plots.plot(#title = "Mean Reward", 
                     legend = :bottomleft,
                     ylabel = "Mean Reward";
                     PLOT_SETTINGS...)
-    p2 = Plots.plot(title = "Final Error Rate", 
+    p2 = Plots.plot(#title = "Final Error Rate", 
                     legend = :topright,
                     ylabel = "Error Rate (%)";
                     PLOT_SETTINGS...)  
-    p3 = Plots.plot(title = "Announcement Changes", 
+    p3 = Plots.plot(#title = "Announcement Changes", 
                     legend = :topright,
                     ylabel = "Avg Changes";
                     PLOT_SETTINGS...)
-    p4 = Plots.plot(title = "Policy Generation Time", 
+    p4 = Plots.plot(#title = "Policy Generation Time", 
                     legend = :topright, 
                     yscale = :log10,
                     ylabel = "Time (seconds)";
                     PLOT_SETTINGS...)
     
-    for solver in solvers
+    for solver in sorted_solvers
         # Collect data across problem sizes
         mean_rewards = []
         error_rates = []
@@ -726,7 +742,7 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
                          size = (1400, 1000);
                          PLOT_SETTINGS...)
     
-    Plots.savefig(combined, joinpath(combined_dir, "key_metrics_comparison.svg"))
+    # Plots.savefig(combined, joinpath(combined_dir, "key_metrics_comparison.svg"))
     Plots.savefig(combined, joinpath(combined_dir, "key_metrics_comparison.pdf"))
 end
 
@@ -806,13 +822,14 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
     
     # Sort problem sizes consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
+    sorted_solvers = sort_solvers(solvers)
     
     # Prepare data for table
     table_data = []
     
     # Collect data by problem size
     for size in sorted_sizes
-        for solver in solvers
+        for solver in sorted_solvers
             if haskey(results[size], solver)
                 solver_data = results[size][solver]
                 
@@ -863,7 +880,7 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
                 size_df[!, "Solver"],
                 size_df[!, "Mean Reward"],
                 yerr = size_df[!, "Std Dev"],
-                title = "Mean Reward by Solver - $size Problem",
+                #title = "Mean Reward by Solver - $size Problem",
                 xlabel = "Solver",
                 ylabel = "Mean Reward",
                 legend = false,
@@ -873,7 +890,7 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
                 color = [get_solver_color(solver) for solver in size_df[!, "Solver"]];
                 PLOT_SETTINGS...)
             
-            Plots.savefig(p, joinpath(output_dir, "reward_comparison_$(size).svg"))
+            # Plots.savefig(p, joinpath(output_dir, "reward_comparison_$(size).svg"))
             Plots.savefig(p, joinpath(output_dir, "reward_comparison_$(size).pdf"))
         end
     end
@@ -909,7 +926,7 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
         yerr = std_matrix',  # YES, these lines indicate +/- standard deviation
         labels = reshape(unique_solvers, 1, :),
         xticks = (1:length(sorted_sizes), sorted_sizes),
-        title = "Mean Reward Comparison Across Problem Sizes",
+        #title = "Mean Reward Comparison Across Problem Sizes",
         xlabel = "Problem Size",
         ylabel = "Mean Reward",
         size = (1200, 700),
@@ -917,7 +934,7 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
         color = reshape(solver_colors, 1, :);
         PLOT_SETTINGS...)
     
-    Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.svg"))
+    # Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.svg"))
     Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.pdf"))
     
     # Restore previous backend
@@ -939,10 +956,12 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
     
     # Sort problem sizes consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
+    sorted_solvers = sort_solvers(solvers)
+
     
     # Individual histograms for each problem size and solver
     for size in sorted_sizes
-        for solver in solvers
+        for solver in sorted_solvers
             if haskey(results[size], solver)
                 solver_data = results[size][solver]
                 
@@ -959,7 +978,7 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
                     p = Plots.histogram(
                         rewards,
                         bins = min(20, length(rewards)),
-                        title = "Reward Distribution - $solver ($size)",
+                        #title = "Reward Distribution - $solver ($size)",
                         xlabel = "Total Reward",
                         ylabel = "Frequency",
                         legend = false,
@@ -975,7 +994,7 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
                         vline!([median(rewards)], label = "Median", linewidth = 2, color = :green, linestyle = :dash)
                     end
                     
-                    Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).svg"))
+                    # Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).svg"))
                     Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_$(solver).pdf"))
                 end
             end
@@ -985,7 +1004,7 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
     # Combined histograms by problem size
     for size in sorted_sizes
         p = Plots.plot(
-            title = "Reward Distributions - $size Problem",
+            #title = "Reward Distributions - $size Problem",
             xlabel = "Total Reward",
             ylabel = "Frequency",
             size = (1000, 600);
@@ -1013,7 +1032,7 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
         end
         
         if plot_created
-            Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.svg"))
+            # Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.svg"))
             Plots.savefig(p, joinpath(hist_dir, "hist_$(size)_combined.pdf"))
         end
     end
@@ -1027,12 +1046,13 @@ function generate_statistics_table(results, problem_sizes, solvers, output_dir)
     
     # Sort problem sizes consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
+    sorted_solvers = sort_solvers(solvers)
     
     # Collect all statistics
     stats_data = []
     
     for size in sorted_sizes
-        for solver in solvers
+        for solver in sorted_solvers
             if haskey(results[size], solver)
                 solver_results = results[size][solver]
                 
@@ -1146,13 +1166,13 @@ function generate_memory_report(experiment_dir::String, output_dir::String)
         p = Plots.pie(
             category_summary.category,
             category_summary.total_size_mb,
-            title = "Disk Usage by File Category",
+            #title = "Disk Usage by File Category",
             legend = :outertopleft,
             size = (800, 600);
             PLOT_SETTINGS...
         )
         
-        Plots.savefig(p, joinpath(output_dir, "disk_usage_by_category.svg"))
+        # Plots.savefig(p, joinpath(output_dir, "disk_usage_by_category.svg"))
         Plots.savefig(p, joinpath(output_dir, "disk_usage_by_category.pdf"))
         
         # Save category summary
@@ -1200,10 +1220,14 @@ function analyze_results(experiment_dir::String; output_dir::Union{String, Nothi
         first_size = first(values(all_results))
         solvers = collect(keys(first_size))
     end
+
+    # Sort for consistent presentation
+    sorted_sizes = sort_problem_sizes(problem_sizes)
+    sorted_solvers = sort_solvers(solvers)
     
     println("Analyzing results for:")
-    println("  Problem sizes: $(join(sort_problem_sizes(problem_sizes), ", "))")
-    println("  Solvers: $(join(solvers, ", "))")
+    println("  Problem sizes: $(join(sorted_sizes, ", "))")
+    println("  Solvers: $(join(sorted_solvers, ", "))")
     println("  Data structure: $(haskey(config, "save_frequency") ? "Incremental" : "Legacy")")
     println("  Output format: SVG and PDF (high quality)")
     println()
