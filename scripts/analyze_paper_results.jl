@@ -22,8 +22,8 @@ const REGEN_BELIEF_HISTORIES = true  # Set to false to skip belief history regen
 const PROBLEM_SIZE_ORDER = ["small", "medium", "large", "xlarge"]
 const SOLVER_ORDER = ["OBSERVEDTIME", "MOSTLIKELY", "QMDP", "CXX_SARSOP", "MOMDP_SARSOP"]
 const SOLVER_COLORS = Dict(
-    "Observed Time" => :blue,
-    "Most Likely" => :red, 
+    "OBSERVEDTIME" => :blue,
+    "MOSTLIKELY" => :red, 
     "QMDP" => :green,
     "MOMDP SARSOP" => :purple,
     "SARSOP" => :orange
@@ -49,8 +49,8 @@ Format solver names for display (capitalize words, remove underscores).
 """
 function format_solver_name(solver::String)
     solver_display_names = Dict(
-        "OBSERVEDTIME" => "Observed Time",
-        "MOSTLIKELY" => "Most Likely", 
+        "OBSERVEDTIME" => "OBSERVEDTIME",
+        "MOSTLIKELY" => "MOSTLIKELY", 
         "QMDP" => "QMDP",
         "CXX_SARSOP" => "SARSOP",
         "MOMDP_SARSOP" => "MOMDP SARSOP",
