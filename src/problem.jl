@@ -5,7 +5,9 @@ end
 
 # Original w/ simplified reward function
 
-function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false, std_divisor::Float64=3.0)
+function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false, std_divisor::Float64=3.0, 
+                      lambda_c::Real = 3.0, lambda_e::Real = 2.0, lambda_f::Real = 1000.0)
+    
     # Constants for rewards
     IMPOSSIBLE_TIME_REWARD = -1000
     WRONG_END_TIME_REWARD = -1000
@@ -56,7 +58,7 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
             # Reward for taking action a in state s
             t, Ta, Tt = s
 
-            return calculate_reward(t, Ta, Tt, a.announced_time, min_end_time, max_end_time)
+            return calculate_reward(t, Ta, Tt, a.announced_time, min_end_time, max_end_time; lambda_c=lambda_c, lambda_e=lambda_e, lambda_f=lambda_f)
         end,
 
         initialstate = function()

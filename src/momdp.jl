@@ -4,6 +4,9 @@ mutable struct PlanningProblem <: MOMDP{Tuple{Int, Int}, Int, Int, Int}
     discount_factor::Float64
     initial_announced_time::Union{Int, Nothing}
     std_divisor::Float64
+    lambda_c::Real
+    lambda_e::Real
+    lambda_f::Real
 end
 
 # Define these relationships for the MOMDP to improve performance
@@ -122,7 +125,10 @@ function POMDPs.reward(problem::PlanningProblem, state::Tuple{Tuple{Int, Int}, I
     t, Ta = state[1]
     Tt = state[2]
 
-    return calculate_reward(t, Ta, Tt, action, problem.min_end_time, problem.max_end_time)
+    return calculate_reward(t, Ta, Tt, action, problem.min_end_time, problem.max_end_time; 
+                            lambda_c=problem.lambda_c, 
+                            lambda_e=problem.lambda_e, 
+                            lambda_f=problem.lambda_f)
 end
 
 function POMDPs.isterminal(problem::PlanningProblem, state::Tuple{Tuple{Int, Int}, Int})
@@ -135,13 +141,19 @@ function define_momdp(
     max_end_time::Int=20, 
     discount_factor::Float64=0.975;
     initial_announce::Union{Int, Nothing}=nothing,
-    std_divisor::Float64=3.0
+    std_divisor::Float64=3.0,
+    lambda_c::Real = 3.0,
+    lambda_e::Real = 2.0,
+    lambda_f::Real = 1000.0
 )
     return PlanningProblem(
         min_end_time,
         max_end_time,
         discount_factor,
         initial_announce,
-        std_divisor
+        std_divisor,
+        lambda_c,
+        lambda_e,
+        lambda_f
     )
 end
