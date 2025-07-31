@@ -292,10 +292,11 @@ function run_pareto_sweep(
     
     mkpath(output_dir)
     
-    # Three types of sweeps:
+    # Four types of sweeps:
     # 1. Vary lambda_c, keep lambda_e constant
     # 2. Vary lambda_e, keep lambda_c constant  
     # 3. Vary ratio lambda_c/lambda_e, keep sum constant
+    # 4. Full grid sweep (all combinations of lambda_c and lambda_e)
     
     all_results = []
     
@@ -342,6 +343,25 @@ function run_pareto_sweep(
         push!(all_results, result)
     end
     
+    # Sweep 4: Full grid sweep (all combinations)
+    println("  4. Grid sweep (all λc × λe combinations)")
+    grid_count = 0
+    total_grid_combinations = length(lambda_c_values) * length(lambda_e_values)
+    for lambda_c in lambda_c_values
+        for lambda_e in lambda_e_values
+            grid_count += 1
+            if verbose
+                println("    Grid point $grid_count/$total_grid_combinations: λc=$lambda_c, λe=$lambda_e")
+            end
+            result = evaluate_reward_parameters(
+                reference_data_path, solver, lambda_c, lambda_e, lambda_f,
+                num_simulations, discount, std_divisor, verbose
+            )
+            result["sweep_type"] = "grid_sweep"
+            push!(all_results, result)
+        end
+    end
+    
     # Save all results
     results_path = joinpath(output_dir, "pareto_sweep_results.json")
     open(results_path, "w") do f
@@ -365,6 +385,7 @@ function create_pareto_plots(results, output_dir::String)
     lambda_c_results = filter(r -> r["sweep_type"] == "lambda_c_sweep", results)
     lambda_e_results = filter(r -> r["sweep_type"] == "lambda_e_sweep", results)  
     ratio_results = filter(r -> r["sweep_type"] == "ratio_sweep", results)
+    grid_results = filter(r -> r["sweep_type"] == "grid_sweep", results)
     
     println("Generating Pareto frontier plots...")
     
@@ -380,7 +401,7 @@ function create_pareto_plots(results, output_dir::String)
     for (metric_key, metric_name, y_label) in error_metric_configs
         println("  Creating plots for: $metric_name")
         
-        # Create combined plot with all three sweeps
+        # Create combined plot with all four sweeps
         p_combined = plot(
             xlabel = "Average Number of Announcement Changes",
             ylabel = y_label,
@@ -390,6 +411,39 @@ function create_pareto_plots(results, output_dir::String)
             PLOT_SETTINGS...
         )
         
+        # Plot grid sweep results as scatter points with Pareto frontier
+        if !isempty(grid_results)
+            x_data_grid = [r["avg_changes"] for r in grid_results]
+            y_data_grid = [getfield(r["error_metrics"], Symbol(metric_key)) for r in grid_results]
+            
+            # Plot all grid points as light scatter
+            scatter!(p_combined, x_data_grid, y_data_grid,
+                    label = "All parameter combinations",
+                    marker = :circle,
+                    markersize = 3,
+                    markerstrokewidth = 0,
+                    alpha = 0.4,
+                    color = :gray)
+            
+            # Compute and plot Pareto frontier
+            pareto_points, pareto_indices = compute_pareto_frontier_from_points(x_data_grid, y_data_grid)
+            
+            if !isempty(pareto_points)
+                pareto_x = [p[1] for p in pareto_points]
+                pareto_y = [p[2] for p in pareto_points]
+                
+                # Plot Pareto frontier as connected line with prominent markers
+                plot!(p_combined, pareto_x, pareto_y,
+                      label = "Pareto frontier",
+                      marker = :circle,
+                      markersize = 6,
+                      markerstrokewidth = 2,
+                      markerstrokecolor = :black,
+                      linewidth = 3,
+                      color = :red)
+            end
+        end
+        
         # Plot lambda_c sweep
         if !isempty(lambda_c_results)
             x_data_c = [r["avg_changes"] for r in lambda_c_results]
@@ -397,8 +451,8 @@ function create_pareto_plots(results, output_dir::String)
             
             plot!(p_combined, x_data_c, y_data_c,
                   label = "λc sweep (λe=2.0)",
-                  marker = :circle,
-                  markersize = 6,
+                  marker = :square,
+                  markersize = 5,
                   linewidth = 2,
                   color = :blue)
         end
@@ -410,10 +464,10 @@ function create_pareto_plots(results, output_dir::String)
             
             plot!(p_combined, x_data_e, y_data_e,
                   label = "λe sweep (λc=3.0)", 
-                  marker = :square,
-                  markersize = 6,
+                  marker = :diamond,
+                  markersize = 5,
                   linewidth = 2,
-                  color = :red)
+                  color = :green)
         end
         
         # Plot ratio sweep
@@ -423,10 +477,10 @@ function create_pareto_plots(results, output_dir::String)
             
             plot!(p_combined, x_data_r, y_data_r,
                   label = "Ratio sweep (λc+λe=5.0)",
-                  marker = :diamond,
-                  markersize = 6,
+                  marker = :utriangle,
+                  markersize = 5,
                   linewidth = 2,
-                  color = :green)
+                  color = :purple)
         end
         
         # Save in multiple formats
@@ -438,15 +492,16 @@ function create_pareto_plots(results, output_dir::String)
         # Create individual sweep plots
         for (sweep_results, sweep_name, color) in [
             (lambda_c_results, "lambda_c", :blue),
-            (lambda_e_results, "lambda_e", :red),
-            (ratio_results, "ratio", :green)
+            (lambda_e_results, "lambda_e", :green),
+            (ratio_results, "ratio", :purple),
+            (grid_results, "grid", :red)
         ]
             if !isempty(sweep_results)
                 p_individual = plot(
                     xlabel = "Average Number of Announcement Changes",
                     ylabel = y_label,
                     title = "$(metric_name) vs Changes ($(replace(sweep_name, "_" => " ")) sweep)",
-                    legend = false,
+                    legend = (sweep_name == "grid"),  # Only show legend for grid plot
                     size = (800, 600);
                     PLOT_SETTINGS...
                 )
@@ -454,24 +509,60 @@ function create_pareto_plots(results, output_dir::String)
                 x_data = [r["avg_changes"] for r in sweep_results]
                 y_data = [getfield(r["error_metrics"], Symbol(metric_key)) for r in sweep_results]
                 
-                plot!(p_individual, x_data, y_data,
-                      marker = :circle,
-                      markersize = 8,
-                      linewidth = 3,
-                      color = color)
-                
-                # Add parameter labels
-                if sweep_name == "lambda_c"
-                    labels = [@sprintf("λc=%.1f", r["lambda_c"]) for r in sweep_results]
-                elseif sweep_name == "lambda_e"
-                    labels = [@sprintf("λe=%.1f", r["lambda_e"]) for r in sweep_results]
+                if sweep_name == "grid"
+                    # For grid sweep, show scatter plot with Pareto frontier
+                    scatter!(p_individual, x_data, y_data,
+                            label = "Parameter combinations",
+                            marker = :circle,
+                            markersize = 4,
+                            markerstrokewidth = 0,
+                            alpha = 0.6,
+                            color = :lightblue)
+                    
+                    # Add Pareto frontier
+                    pareto_points, pareto_indices = compute_pareto_frontier_from_points(x_data, y_data)
+                    if !isempty(pareto_points)
+                        pareto_x = [p[1] for p in pareto_points]
+                        pareto_y = [p[2] for p in pareto_points]
+                        
+                        plot!(p_individual, pareto_x, pareto_y,
+                              label = "Pareto frontier",
+                              marker = :circle,
+                              markersize = 6,
+                              markerstrokewidth = 2,
+                              markerstrokecolor = :black,
+                              linewidth = 3,
+                              color = color)
+                        
+                        # Add parameter labels for Pareto points
+                        for idx in pareto_indices
+                            result = sweep_results[idx]
+                            label_text = @sprintf("(%.1f,%.1f)", result["lambda_c"], result["lambda_e"])
+                            annotate!(p_individual, x_data[idx], y_data[idx],
+                                     text(label_text, 8, :bottom, :left))
+                        end
+                    end
                 else
-                    labels = [@sprintf("r=%.1f", r["lambda_ratio"]) for r in sweep_results]
-                end
-                
-                for (i, label) in enumerate(labels)
-                    annotate!(p_individual, x_data[i], y_data[i],
-                             text(label, 9, :bottom, :left))
+                    # For other sweeps, show connected line plot
+                    plot!(p_individual, x_data, y_data,
+                          marker = :circle,
+                          markersize = 8,
+                          linewidth = 3,
+                          color = color)
+                    
+                    # Add parameter labels
+                    if sweep_name == "lambda_c"
+                        labels = [@sprintf("λc=%.1f", r["lambda_c"]) for r in sweep_results]
+                    elseif sweep_name == "lambda_e"
+                        labels = [@sprintf("λe=%.1f", r["lambda_e"]) for r in sweep_results]
+                    else
+                        labels = [@sprintf("r=%.1f", r["lambda_ratio"]) for r in sweep_results]  
+                    end
+                    
+                    for (i, label) in enumerate(labels)
+                        annotate!(p_individual, x_data[i], y_data[i],
+                                 text(label, 9, :bottom, :left))
+                    end
                 end
                 
                 # Save individual plots
@@ -555,6 +646,31 @@ function find_pareto_optimal_points(df, x_col, y_col)
     end
     
     return pareto_points
+end
+
+function compute_pareto_frontier_from_points(x_values, y_values)
+    """Compute Pareto frontier from scatter points (minimize both x and y)."""
+    
+    # Create array of (x, y, index) tuples
+    points = [(x_values[i], y_values[i], i) for i in 1:length(x_values)]
+    
+    # Sort by x coordinate
+    sort!(points, by = p -> p[1])
+    
+    pareto_points = []
+    pareto_indices = Int[]
+    min_y = Inf
+    
+    # Find Pareto optimal points (minimize changes for each error level)
+    for (x, y, idx) in points
+        if y < min_y
+            min_y = y
+            push!(pareto_points, (x, y))
+            push!(pareto_indices, idx)
+        end
+    end
+    
+    return pareto_points, pareto_indices
 end
 
 function main()
