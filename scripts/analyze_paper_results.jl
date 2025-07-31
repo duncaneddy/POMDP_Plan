@@ -768,6 +768,52 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
     plot!(p3, xticks = (positions, two_line_labels))
     
     Plots.savefig(p3, joinpath(stats_plot_dir, "incorrect_predictions.pdf"))
+    
+    # Plot average change magnitude
+    p4 = Plots.plot(xlabel = "Problem Size",
+              ylabel = "Average Change Magnitude",
+              size = (800, 600);
+              PLOT_SETTINGS...)
+    
+    for solver in sorted_solvers
+        # Handle solver name mismatch (space vs underscore)
+        solver_data = filter(row -> replace(row["Solver"], " " => "_") == solver, df)
+        
+        if !isempty(solver_data)
+            y_data = []
+            x_data = []
+            
+            for (i, size) in enumerate(sorted_sizes)
+                # Handle case mismatch (capitalize first letter)
+                size_capitalized = uppercase(string(size[1])) * lowercase(size[2:end])
+                if size == "xlarge"
+                    size_capitalized = "XLarge"  # Special case for xlarge
+                end
+                size_rows = filter(row -> row["Problem Size"] == size_capitalized, solver_data)
+                
+                if !isempty(size_rows)
+                    y_val = size_rows[1, "Avg Change Magnitude"]
+                    push!(y_data, y_val)
+                    push!(x_data, Float64(i))
+                end
+            end
+            
+            if !isempty(y_data)
+                plot!(p4, x_data, y_data,
+                      label = solver,
+                      marker = :circle,
+                      markersize = 6,
+                      linewidth = 2,
+                      color = get_solver_color(solver),
+                      markerstrokewidth = 0)
+            end
+        end
+    end
+    
+    # Set custom x-axis labels
+    plot!(p4, xticks = (positions, two_line_labels))
+    
+    Plots.savefig(p4, joinpath(stats_plot_dir, "avg_change_magnitude.pdf"))
 end
 
 """
@@ -829,16 +875,16 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
         solver_color = get_solver_color(solver)
         
         plot!(p1, x_positions, mean_rewards, 
-              label = solver, marker = :circle, markersize = 6, 
+              label = solver, marker = :circle, markersize = 6, markersizewidth = 0,
               linewidth = 2, color = solver_color)
         plot!(p2, x_positions, error_rates, 
-              label = solver, marker = :circle, markersize = 6, 
+              label = solver, marker = :circle, markersize = 6, markersizewidth = 0,
               linewidth = 2, color = solver_color)
         plot!(p3, x_positions, avg_changes, 
-              label = solver, marker = :circle, markersize = 6, 
+              label = solver, marker = :circle, markersize = 6, markersizewidth = 0,
               linewidth = 2, color = solver_color)
         plot!(p4, x_positions, policy_times, 
-              label = solver, marker = :circle, markersize = 6, 
+              label = solver, marker = :circle, markersize = 6, markersizewidth = 0,
               linewidth = 2, color = solver_color)
     end
     
