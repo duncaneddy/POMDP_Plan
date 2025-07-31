@@ -28,3 +28,4 @@ scripts/*.png
 *.jld2
 digest.txt
 paper_results/*
+pareto_analysis_results/*
