@@ -875,16 +875,16 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
         solver_color = get_solver_color(solver)
         
         plot!(p1, x_positions, mean_rewards, 
-              label = solver, marker = :circle, markersize = 6, markersizewidth = 0,
+              label = solver, marker = :circle, markersize = 6, markerstrokewidth = 0,
               linewidth = 2, color = solver_color)
         plot!(p2, x_positions, error_rates, 
-              label = solver, marker = :circle, markersize = 6, markersizewidth = 0,
+              label = solver, marker = :circle, markersize = 6, markerstrokewidth = 0,
               linewidth = 2, color = solver_color)
         plot!(p3, x_positions, avg_changes, 
-              label = solver, marker = :circle, markersize = 6, markersizewidth = 0,
+              label = solver, marker = :circle, markersize = 6, markerstrokewidth = 0,
               linewidth = 2, color = solver_color)
         plot!(p4, x_positions, policy_times, 
-              label = solver, marker = :circle, markersize = 6, markersizewidth = 0,
+              label = solver, marker = :circle, markersize = 6, markerstrokewidth = 0,
               linewidth = 2, color = solver_color)
     end
     
