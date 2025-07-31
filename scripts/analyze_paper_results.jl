@@ -16,7 +16,7 @@ using Printf
 using DataFrames
 using CSV
 
-const REGEN_BELIEF_HISTORIES = true  # Set to false to skip belief history regeneration
+const REGEN_BELIEF_HISTORIES = false  # Set to false to skip belief history regeneration
 
 # Define consistent problem size ordering and color scheme
 const PROBLEM_SIZE_ORDER = ["small", "medium", "large", "xlarge"]
@@ -44,6 +44,37 @@ const PLOT_SETTINGS = Dict(
     :fontfamily => "Computer Modern"
 )
 
+const PROBLEM_SIZE_TO_TMAX = Dict(
+    "small" => 13,
+    "medium" => 26,
+    "large" => 39,
+    "xlarge" => 52
+)
+
+"""
+Create two-line LaTeX formatted labels for problem sizes.
+"""
+function create_two_line_labels(problem_sizes::Vector{String})
+    labels = String[]
+    positions = Float64[]
+    
+    for (i, size) in enumerate(problem_sizes)
+        # Capitalize first letter
+        size_display = uppercase(string(size[1])) * lowercase(size[2:end])
+        
+        # Get T_max value
+        t_max = get(PROBLEM_SIZE_TO_TMAX, size, "?")
+        
+        # Create two-line label with LaTeX formatting
+        label = "$(size_display)\n\$T_{\\mathrm{max}} = $(t_max)\$"
+        push!(labels, label)
+        push!(positions, Float64(i))
+    end
+    
+    return positions, labels
+end
+
+
 """
 Format solver names for display (capitalize words, remove underscores).
 """
@@ -70,7 +101,7 @@ function format_problem_size(size::String)
     size_display_names = Dict(
         "small" => "Small",
         "medium" => "Medium",
-        "large" => "Large", 
+        "large" => "Large",
         "xlarge" => "XLarge"
     )
     
@@ -107,6 +138,16 @@ function sort_solvers(solvers::Vector{Any})
     # Add any unexpected solvers at the end
     unexpected_solvers = filter(s -> !(s in SOLVER_ORDER), solvers)
     return vcat(existing_solvers, sort(unexpected_solvers))
+end
+
+"""
+Calculate standard error instead of standard deviation.
+"""
+function calculate_standard_error(values::Vector{Any}, n_simulations::Int=1000)
+    if length(values) <= 1
+        return 0.0
+    end
+    return std(values) / sqrt(min(length(values), n_simulations))
 end
 
 """
@@ -576,7 +617,7 @@ function create_latex_statistics_table(df::DataFrame, filepath::String)
 end
 
 """
-Create additional statistics plots
+Create additional statistics plots with updated x-axis labels.
 """
 function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_dir)
     stats_plot_dir = joinpath(output_dir, "statistics_plots")
@@ -586,6 +627,9 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
     sorted_sizes = sort_problem_sizes(problem_sizes)
     sorted_solvers = sort_solvers(solvers)
     
+    # Get two-line labels
+    positions, two_line_labels = create_two_line_labels(sorted_sizes)
+    
     # Plot average number of changes
     p1 = Plots.plot(xlabel = "Problem Size", 
               ylabel = "Average Changes",
@@ -593,69 +637,47 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
               PLOT_SETTINGS...)
     
     for solver in sorted_solvers
-        formatted_solver = format_solver_name(solver)
-        solver_data = filter(row -> row["Solver"] == formatted_solver, df)
+        solver_data = filter(row -> row["Solver"] == solver, df)
+        y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Avg Announcement Changes"][1] 
+                  for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
+        x_data = [i for (i, size) in enumerate(sorted_sizes) if size in solver_data[!, "Problem Size"]]
         
-        y_data = []
-        x_data = []
-        for size in sorted_sizes
-            formatted_size = format_problem_size(size)
-            if formatted_size in solver_data[!, "Problem Size"]
-                size_row = solver_data[solver_data[!, "Problem Size"] .== formatted_size, :]
-                if !isempty(size_row)
-                    push!(y_data, size_row[1, "Avg Announcement Changes"])
-                    push!(x_data, formatted_size)
-                end
-            end
-        end
-        
-        if !isempty(y_data)
-            plot!(p1, x_data, y_data,
-                  label = format_solver_name(solver), 
-                  marker = :circle, 
-                  markersize = 6,
-                  linewidth = 2,
-                  color = get_solver_color(solver),
-                  markerstrokewidth = 0)
-        end
+        plot!(p1, x_data, y_data,
+              label = solver, 
+              marker = :circle, 
+              markersize = 6,
+              linewidth = 2,
+              color = get_solver_color(solver))
     end
+    
+    # Set custom x-axis labels
+    plot!(p1, xticks = (positions, two_line_labels))
     
     Plots.savefig(p1, joinpath(stats_plot_dir, "avg_announcement_changes.pdf"))
     
-    # Plot average final error
+    # Plot average final error with two-line labels
     p2 = Plots.plot(xlabel = "Problem Size",
               ylabel = "Average Error", 
               size = (800, 600),
               legend = :right;
               PLOT_SETTINGS...)
-
-    for solver in sorted_solvers
-        formatted_solver = format_solver_name(solver)
-        solver_data = filter(row -> row["Solver"] == formatted_solver, df)
+    
+    for solver in solvers
+        solver_data = filter(row -> row["Solver"] == solver, df)
+        y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Avg Final Error"][1]
+                  for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
+        x_data = [i for (i, size) in enumerate(sorted_sizes) if size in solver_data[!, "Problem Size"]]
         
-        y_data = []
-        x_data = []
-        for size in sorted_sizes
-            formatted_size = format_problem_size(size)
-            if formatted_size in solver_data[!, "Problem Size"]
-                size_row = solver_data[solver_data[!, "Problem Size"] .== formatted_size, :]
-                if !isempty(size_row)
-                    push!(y_data, size_row[1, "Avg Final Error"])
-                    push!(x_data, formatted_size)
-                end
-            end
-        end
-        
-        if !isempty(y_data)
-            plot!(p2, x_data, y_data,
-                  label = format_solver_name(solver),
-                  marker = :circle,
-                  markersize = 6, 
-                  linewidth = 2,
-                  color = get_solver_color(solver),
-                  markerstrokewidth = 0)
-        end
+        plot!(p2, x_data, y_data,
+              label = solver,
+              marker = :circle,
+              markersize = 6, 
+              linewidth = 2,
+              color = get_solver_color(solver))
     end
+    
+    # Set custom x-axis labels
+    plot!(p2, xticks = (positions, two_line_labels))
     
     Plots.savefig(p2, joinpath(stats_plot_dir, "avg_final_error.pdf"))
     
@@ -665,39 +687,28 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
               size = (800, 600);
               PLOT_SETTINGS...)
     
-    for solver in sorted_solvers
-        formatted_solver = format_solver_name(solver)
-        solver_data = filter(row -> row["Solver"] == formatted_solver, df)
+    for solver in solvers
+        solver_data = filter(row -> row["Solver"] == solver, df)
+        y_data = [solver_data[solver_data[!, "Problem Size"] .== size, "Incorrect Final (%)"][1]
+                  for size in sorted_sizes if size in solver_data[!, "Problem Size"]]
+        x_data = [i for (i, size) in enumerate(sorted_sizes) if size in solver_data[!, "Problem Size"]]
         
-        y_data = []
-        x_data = []
-        for size in sorted_sizes
-            formatted_size = format_problem_size(size)
-            if formatted_size in solver_data[!, "Problem Size"]
-                size_row = solver_data[solver_data[!, "Problem Size"] .== formatted_size, :]
-                if !isempty(size_row)
-                    push!(y_data, size_row[1, "Incorrect Final (%)"])
-                    push!(x_data, formatted_size)
-                end
-            end
-        end
-        
-        if !isempty(y_data)
-            plot!(p3, x_data, y_data,
-                  label = format_solver_name(solver),
-                  marker = :circle,
-                  markersize = 6,
-                  linewidth = 2,
-                  color = get_solver_color(solver),
-                  markerstrokewidth = 0)
-        end
+        plot!(p3, x_data, y_data,
+              label = solver,
+              marker = :circle,
+              markersize = 6,
+              linewidth = 2,
+              color = get_solver_color(solver))
     end
+    
+    # Set custom x-axis labels
+    plot!(p3, xticks = (positions, two_line_labels))
     
     Plots.savefig(p3, joinpath(stats_plot_dir, "incorrect_predictions.pdf"))
 end
 
 """
-Generate combined visualizations for the paper
+Generate combined visualizations for the paper with updated labels.
 """
 function generate_combined_plots(results, problem_sizes, solvers, output_dir)
     println("Generating combined visualizations...")
@@ -708,6 +719,9 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
     # Sort problem sizes consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
     sorted_solvers = sort_solvers(solvers)
+    
+    # Get two-line labels
+    positions, two_line_labels = create_two_line_labels(sorted_sizes)
     
     # Create a 2x2 subplot of key metrics
     p1 = Plots.plot(legend = :bottomleft,
@@ -730,9 +744,9 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
         error_rates = []
         avg_changes = []
         policy_times = []
-        available_sizes = []
+        x_positions = []
         
-        for size in sorted_sizes
+        for (i, size) in enumerate(sorted_sizes)
             if haskey(results, size) && haskey(results[size], solver)
                 solver_results = results[size][solver]
                 
@@ -745,31 +759,31 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
                 
                 push!(avg_changes, mean(solver_results["num_changes"]))
                 push!(policy_times, get(solver_results, "policy_solve_time", 0.001))
-                push!(available_sizes, format_problem_size(size))
+                push!(x_positions, Float64(i))
             end
         end
         
         solver_color = get_solver_color(solver)
-        formatted_solver_name = format_solver_name(solver)
         
-        plot!(p1, available_sizes, mean_rewards, 
-              label = formatted_solver_name, marker = :circle, markersize = 6, 
-              linewidth = 2, color = solver_color, markerstrokewidth = 0)
-        plot!(p2, available_sizes, error_rates, 
-              label = formatted_solver_name, marker = :circle, markersize = 6, 
-              linewidth = 2, color = solver_color, markerstrokewidth = 0)
-        plot!(p3, available_sizes, avg_changes, 
-              label = formatted_solver_name, marker = :circle, markersize = 6, 
-              linewidth = 2, color = solver_color, markerstrokewidth = 0)
-        plot!(p4, available_sizes, policy_times, 
-              label = formatted_solver_name, marker = :circle, markersize = 6, 
-              linewidth = 2, color = solver_color, markerstrokewidth = 0)
+        plot!(p1, x_positions, mean_rewards, 
+              label = solver, marker = :circle, markersize = 6, 
+              linewidth = 2, color = solver_color)
+        plot!(p2, x_positions, error_rates, 
+              label = solver, marker = :circle, markersize = 6, 
+              linewidth = 2, color = solver_color)
+        plot!(p3, x_positions, avg_changes, 
+              label = solver, marker = :circle, markersize = 6, 
+              linewidth = 2, color = solver_color)
+        plot!(p4, x_positions, policy_times, 
+              label = solver, marker = :circle, markersize = 6, 
+              linewidth = 2, color = solver_color)
     end
     
-    xlabel!(p1, "Problem Size")
-    xlabel!(p2, "Problem Size")
-    xlabel!(p3, "Problem Size") 
-    xlabel!(p4, "Problem Size")
+    # Set two-line labels for all subplots
+    plot!(p1, xticks = (positions, two_line_labels), xlabel = "Problem Size")
+    plot!(p2, xticks = (positions, two_line_labels), xlabel = "Problem Size")
+    plot!(p3, xticks = (positions, two_line_labels), xlabel = "Problem Size") 
+    plot!(p4, xticks = (positions, two_line_labels), xlabel = "Problem Size")
     
     combined = Plots.plot(p1, p2, p3, p4, layout = (2, 2), 
                          size = (1400, 1000);
@@ -876,10 +890,11 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
                 
                 if !isempty(rewards)
                     push!(table_data, Dict(
-                        "Problem Size" => format_problem_size(size),
-                        "Solver" => format_solver_name(solver),
+                        "Problem Size" => size,
+                        "Solver" => solver,
                         "Mean Reward" => mean(rewards),
                         "Std Dev" => length(rewards) > 1 ? std(rewards) : 0.0,
+                        "Std Error" => calculate_standard_error(rewards),
                         "Min" => minimum(rewards),
                         "Max" => maximum(rewards),
                         "Count" => length(rewards)
@@ -900,19 +915,21 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
     # Save as CSV
     CSV.write(joinpath(output_dir, "reward_statistics.csv"), df)
     
-    # Create formatted LaTeX table
+    # Create formatted LaTeX table (updated for standard error)
     create_latex_reward_table(df, joinpath(output_dir, "reward_table.tex"))
     
     # Create bar plot with error bars for each problem size
     for size in sorted_sizes
-        formatted_size = format_problem_size(size)
-        size_df = filter(row -> row["Problem Size"] == formatted_size, df)
+        size_df = filter(row -> row["Problem Size"] == size, df)
         
         if !isempty(size_df)
+            # Get two-line labels for this single size plot
+            single_positions, single_labels = create_two_line_labels([size])
+            
             p = Plots.bar(
                 size_df[!, "Solver"],
                 size_df[!, "Mean Reward"],
-                yerr = size_df[!, "Std Dev"],
+                yerr = size_df[!, "Std Error"],  # Changed to standard error
                 xlabel = "Solver",
                 ylabel = "Mean Reward",
                 legend = false,
@@ -926,28 +943,29 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
         end
     end
     
-    # Combined plot across all problem sizes - IMPROVED VERSION
+    # Combined plot across all problem sizes - UPDATED VERSION
     # Use GR backend for grouped bar charts
     current_backend = Plots.backend()
     gr()  
     
-    # Use the predefined solver order directly, filtering for what exists in the data
-    df_solvers = unique(df[!, "Solver"])
-    unique_solvers = [format_solver_name(solver) for solver in SOLVER_ORDER if format_solver_name(solver) in df_solvers]
-    formatted_sizes = [format_problem_size(size) for size in sorted_sizes]
+    # Reshape data for grouped bar chart with consistent ordering
+    unique_solvers = sort(unique(df[!, "Solver"]))
     
     mean_matrix = zeros(length(unique_solvers), length(sorted_sizes))
-    std_matrix = zeros(length(unique_solvers), length(sorted_sizes))
+    stderr_matrix = zeros(length(unique_solvers), length(sorted_sizes))  # Changed from std to stderr
     
     for (i, solver) in enumerate(unique_solvers)
-        for (j, size) in enumerate(formatted_sizes)
+        for (j, size) in enumerate(sorted_sizes)
             solver_data = filter(row -> row["Solver"] == solver && row["Problem Size"] == size, df)
             if !isempty(solver_data)
                 mean_matrix[i, j] = solver_data[1, "Mean Reward"]
-                std_matrix[i, j] = solver_data[1, "Std Dev"]
+                stderr_matrix[i, j] = solver_data[1, "Std Error"]
             end
         end
     end
+    
+    # Create two-line labels
+    positions, two_line_labels = create_two_line_labels(sorted_sizes)
     
     # Create color palette with consistent colors
     solver_colors = [get_solver_color(solver) for solver in unique_solvers]
@@ -956,21 +974,34 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
         mean_matrix',
         bar_position = :dodge,
         bar_width = 0.7,
-        yerr = std_matrix',
+        yerr = stderr_matrix',  # Now shows ± standard error
         labels = reshape(unique_solvers, 1, :),
-        xticks = (1:length(formatted_sizes), formatted_sizes),
+        xticks = (positions, two_line_labels),  # Use two-line labels
         xlabel = "Problem Size",
         ylabel = "Mean Reward",
         size = (1200, 700),
+        ylims = (-325, :auto),
         legend = :bottomleft,
-        color = reshape(solver_colors, 1, :),
-        ylims = (-550, :auto);
+        color = reshape(solver_colors, 1, :);
         PLOT_SETTINGS...)
     
-    # Add error bar legend entry
+    # Add annotation with arrow pointing up in bottom right
+    y_range = ylims(p_combined)
+    x_range = xlims(p_combined)
+    
+    # Position annotation in bottom right area
+    arrow_x = x_range[2] * 0.85
+    arrow_y = y_range[1] + (y_range[2] - y_range[1]) * 0.15
+    
+    # Add arrow pointing up with text
+    annotate!(p_combined, [(arrow_x, arrow_y, 
+               Plots.text("Direction of\nimprovement ↑", 12, :right, :bottom))])
+
+        # Add error bar legend entry
     plot!(p_combined, [NaN, NaN], [NaN, NaN], 
-          label="±1σ", color=:black, linewidth=2, 
+          label="±1 Std. Error", color=:black, linewidth=2, 
           linestyle=:solid, marker=:none)
+
     
     Plots.savefig(p_combined, joinpath(output_dir, "reward_comparison_combined.pdf"))
     
@@ -979,7 +1010,7 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
         eval(current_backend.backend_name)()
     end
     
-    println("Note: Error bars in reward comparison plots indicate ± standard deviation")
+    println("Note: Error bars in reward comparison plots indicate ± standard error")
 end
 
 """
