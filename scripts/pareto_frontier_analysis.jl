@@ -30,10 +30,13 @@ const DEFAULT_LAMBDA_E = 2.0
 const DEFAULT_LAMBDA_F = 1000.0
 
 # Parameter sweep configurations
-const DEFAULT_LAMBDA_C_SWEEP = [0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
-const DEFAULT_LAMBDA_E_SWEEP = [0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
+# const DEFAULT_LAMBDA_C_SWEEP = [0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
+# const DEFAULT_LAMBDA_E_SWEEP = [0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
+
+const DEFAULT_LAMBDA_C_SWEEP = [2.0, 3.0]
+const DEFAULT_LAMBDA_E_SWEEP = [2.0, 3.0]
 const DEFAULT_STD_DIVISOR = 3.0
-const DEFAULT_DISCOUNT = 0.99
+const DEFAULT_DISCOUNT = 0.98
 
 # Plot settings
 const PLOT_SETTINGS = Dict(
@@ -228,7 +231,7 @@ function evaluate_baseline_solvers(
         end
         
         # Create POMDP with default parameters for baseline evaluation
-        pomdp = define_pomdp(
+        pomdp = POMDPPlanning.define_pomdp(
             min_end_time,
             max_end_time,
             discount,
@@ -239,14 +242,14 @@ function evaluate_baseline_solvers(
         )
         
         # Generate policy
-        policy_data = get_policy(pomdp, solver, tempdir(), verbose=false)
+        policy_data = POMDPPlanning.get_policy(pomdp, solver, tempdir(), verbose=false)
         policy = policy_data["policy"]
         
         # Run simulations
         actual_num_sims = min(num_simulations, length(simulation_data))
         replay_data = simulation_data[1:actual_num_sims]
         
-        stats = simulate_many(
+        stats = POMDPPlanning.simulate_many(
             pomdp,
             policy,
             actual_num_sims,
