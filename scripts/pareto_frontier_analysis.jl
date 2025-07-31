@@ -24,10 +24,14 @@ const DEFAULT_REFERENCE_PROBLEM = "reference_problems/std_div_3/qmdp_base_l_2_u_
 const DEFAULT_SOLVER = "QMDP"
 const DEFAULT_NUM_SIMULATIONS = 100
 
+# Default reward parameters (should match project defaults)
+const DEFAULT_LAMBDA_C = 3.0
+const DEFAULT_LAMBDA_E = 2.0
+const DEFAULT_LAMBDA_F = 1000.0
+
 # Parameter sweep configurations
 const DEFAULT_LAMBDA_C_SWEEP = [0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
 const DEFAULT_LAMBDA_E_SWEEP = [0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
-const DEFAULT_LAMBDA_F = 1000.0
 const DEFAULT_STD_DIVISOR = 3.0
 const DEFAULT_DISCOUNT = 0.99
 
@@ -199,6 +203,82 @@ function extract_problem_parameters(reference_data_path::String)
     return 10, 20
 end
 
+function evaluate_baseline_solvers(
+    reference_data_path::String,
+    baseline_solvers::Vector{String},
+    num_simulations::Int,
+    discount::Float64,
+    std_divisor::Float64,
+    verbose::Bool
+)
+    """Evaluate baseline solvers (OBSERVEDTIME, MOSTLIKELY) for comparison."""
+    
+    baseline_results = []
+    
+    # Load reference data
+    reference_data = JSON.parsefile(reference_data_path)
+    simulation_data = reference_data["simulation_data"]
+    
+    # Extract problem parameters
+    min_end_time, max_end_time = extract_problem_parameters(reference_data_path)
+    
+    for solver in baseline_solvers
+        if verbose
+            println("Evaluating baseline solver: $solver")
+        end
+        
+        # Create POMDP with default parameters for baseline evaluation
+        pomdp = define_pomdp(
+            min_end_time,
+            max_end_time,
+            discount,
+            std_divisor=std_divisor,
+            lambda_c=DEFAULT_LAMBDA_C,
+            lambda_e=DEFAULT_LAMBDA_E,
+            lambda_f=DEFAULT_LAMBDA_F
+        )
+        
+        # Generate policy
+        policy_data = get_policy(pomdp, solver, tempdir(), verbose=false)
+        policy = policy_data["policy"]
+        
+        # Run simulations
+        actual_num_sims = min(num_simulations, length(simulation_data))
+        replay_data = simulation_data[1:actual_num_sims]
+        
+        stats = simulate_many(
+            pomdp,
+            policy,
+            actual_num_sims,
+            replay_data=replay_data,
+            collect_beliefs=false,
+            verbose=false
+        )
+        
+        # Compute error metrics
+        error_metrics_list = ErrorMetrics[]
+        for run_details in stats["run_details"]
+            metrics = compute_error_metrics(run_details)
+            push!(error_metrics_list, metrics)
+        end
+        
+        aggregated_metrics = aggregate_error_metrics(error_metrics_list)
+        avg_changes = mean(stats["num_changes"])
+        
+        baseline_result = Dict(
+            "solver" => solver,
+            "avg_changes" => avg_changes,
+            "error_metrics" => aggregated_metrics,
+            "total_reward" => mean(stats["rewards"]),
+            "is_baseline" => true
+        )
+        
+        push!(baseline_results, baseline_result)
+    end
+    
+    return baseline_results
+end
+
 function evaluate_reward_parameters(
     reference_data_path::String,
     solver::String,
@@ -368,8 +448,22 @@ function run_pareto_sweep(
         JSON.print(f, all_results, 4)
     end
     
+    # Evaluate baseline solvers for comparison
+    println("  5. Baseline solver evaluation")
+    baseline_results = evaluate_baseline_solvers(
+        reference_data_path,
+        ["OBSERVEDTIME", "MOSTLIKELY"],
+        num_simulations,
+        discount,
+        std_divisor,
+        verbose
+    )
+    
+    # Combine all results
+    combined_results = vcat(all_results, baseline_results)
+    
     println("Results saved to: $results_path")
-    return all_results
+    return combined_results
 end
 
 function create_pareto_plots(results, output_dir::String)
@@ -382,10 +476,11 @@ function create_pareto_plots(results, output_dir::String)
     gr()
     
     # Group results by sweep type
-    lambda_c_results = filter(r -> r["sweep_type"] == "lambda_c_sweep", results)
-    lambda_e_results = filter(r -> r["sweep_type"] == "lambda_e_sweep", results)  
-    ratio_results = filter(r -> r["sweep_type"] == "ratio_sweep", results)
-    grid_results = filter(r -> r["sweep_type"] == "grid_sweep", results)
+    lambda_c_results = filter(r -> get(r, "sweep_type", "") == "lambda_c_sweep", results)
+    lambda_e_results = filter(r -> get(r, "sweep_type", "") == "lambda_e_sweep", results)  
+    ratio_results = filter(r -> get(r, "sweep_type", "") == "ratio_sweep", results)
+    grid_results = filter(r -> get(r, "sweep_type", "") == "grid_sweep", results)
+    baseline_results = filter(r -> get(r, "is_baseline", false), results)
     
     println("Generating Pareto frontier plots...")
     
@@ -416,14 +511,14 @@ function create_pareto_plots(results, output_dir::String)
             x_data_grid = [r["avg_changes"] for r in grid_results]
             y_data_grid = [getfield(r["error_metrics"], Symbol(metric_key)) for r in grid_results]
             
-            # Plot all grid points as light scatter
+            # Plot all grid points as light scatter (no black edges)
             scatter!(p_combined, x_data_grid, y_data_grid,
                     label = "All parameter combinations",
                     marker = :circle,
-                    markersize = 3,
+                    markersize = 4,
                     markerstrokewidth = 0,
-                    alpha = 0.4,
-                    color = :gray)
+                    alpha = 0.6,
+                    color = :lightblue)
             
             # Compute and plot Pareto frontier
             pareto_points, pareto_indices = compute_pareto_frontier_from_points(x_data_grid, y_data_grid)
@@ -432,19 +527,49 @@ function create_pareto_plots(results, output_dir::String)
                 pareto_x = [p[1] for p in pareto_points]
                 pareto_y = [p[2] for p in pareto_points]
                 
-                # Plot Pareto frontier as connected line with prominent markers
+                # Plot Pareto frontier as connected line with prominent markers (no black edges)
                 plot!(p_combined, pareto_x, pareto_y,
                       label = "Pareto frontier",
                       marker = :circle,
                       markersize = 6,
-                      markerstrokewidth = 2,
-                      markerstrokecolor = :black,
+                      markerstrokewidth = 0,
                       linewidth = 3,
                       color = :red)
             end
+            
+            # Highlight default parameter combination with gold star
+            for (i, result) in enumerate(grid_results)
+                if abs(result["lambda_c"] - DEFAULT_LAMBDA_C) < 0.1 && abs(result["lambda_e"] - DEFAULT_LAMBDA_E) < 0.1
+                    scatter!(p_combined, [x_data_grid[i]], [y_data_grid[i]],
+                            label = "Default parameters (λc=$(DEFAULT_LAMBDA_C), λe=$(DEFAULT_LAMBDA_E))",
+                            marker = :star5,
+                            markersize = 12,
+                            markerstrokewidth = 0,
+                            color = :gold)
+                    break
+                end
+            end
         end
         
-        # Plot lambda_c sweep
+        # Plot baseline solver performance
+        if !isempty(baseline_results)
+            for baseline in baseline_results
+                x_baseline = baseline["avg_changes"]
+                y_baseline = getfield(baseline["error_metrics"], Symbol(metric_key))
+                
+                marker_shape = baseline["solver"] == "OBSERVEDTIME" ? :hexagon : :pentagon
+                marker_color = baseline["solver"] == "OBSERVEDTIME" ? :orange : :magenta
+                
+                scatter!(p_combined, [x_baseline], [y_baseline],
+                        label = baseline["solver"],
+                        marker = marker_shape,
+                        markersize = 10,
+                        markerstrokewidth = 0,
+                        color = marker_color)
+            end
+        end
+        
+        # Plot lambda_c sweep (no black edges)
         if !isempty(lambda_c_results)
             x_data_c = [r["avg_changes"] for r in lambda_c_results]
             y_data_c = [getfield(r["error_metrics"], Symbol(metric_key)) for r in lambda_c_results]
@@ -453,11 +578,12 @@ function create_pareto_plots(results, output_dir::String)
                   label = "λc sweep (λe=2.0)",
                   marker = :square,
                   markersize = 5,
+                  markerstrokewidth = 0,
                   linewidth = 2,
                   color = :blue)
         end
         
-        # Plot lambda_e sweep  
+        # Plot lambda_e sweep (no black edges)
         if !isempty(lambda_e_results)
             x_data_e = [r["avg_changes"] for r in lambda_e_results]
             y_data_e = [getfield(r["error_metrics"], Symbol(metric_key)) for r in lambda_e_results]
@@ -466,11 +592,12 @@ function create_pareto_plots(results, output_dir::String)
                   label = "λe sweep (λc=3.0)", 
                   marker = :diamond,
                   markersize = 5,
+                  markerstrokewidth = 0,
                   linewidth = 2,
                   color = :green)
         end
         
-        # Plot ratio sweep
+        # Plot ratio sweep (no black edges)
         if !isempty(ratio_results)
             x_data_r = [r["avg_changes"] for r in ratio_results]
             y_data_r = [getfield(r["error_metrics"], Symbol(metric_key)) for r in ratio_results]
@@ -479,6 +606,7 @@ function create_pareto_plots(results, output_dir::String)
                   label = "Ratio sweep (λc+λe=5.0)",
                   marker = :utriangle,
                   markersize = 5,
+                  markerstrokewidth = 0,
                   linewidth = 2,
                   color = :purple)
         end
@@ -529,40 +657,49 @@ function create_pareto_plots(results, output_dir::String)
                               label = "Pareto frontier",
                               marker = :circle,
                               markersize = 6,
-                              markerstrokewidth = 2,
-                              markerstrokecolor = :black,
+                              markerstrokewidth = 0,
                               linewidth = 3,
                               color = color)
-                        
-                        # Add parameter labels for Pareto points
-                        for idx in pareto_indices
-                            result = sweep_results[idx]
-                            label_text = @sprintf("(%.1f,%.1f)", result["lambda_c"], result["lambda_e"])
-                            annotate!(p_individual, x_data[idx], y_data[idx],
-                                     text(label_text, 8, :bottom, :left))
+                    end
+                    
+                    # Highlight default parameter combination with gold star
+                    for (i, result) in enumerate(sweep_results)
+                        if abs(result["lambda_c"] - DEFAULT_LAMBDA_C) < 0.1 && abs(result["lambda_e"] - DEFAULT_LAMBDA_E) < 0.1
+                            scatter!(p_individual, [x_data[i]], [y_data[i]],
+                                    label = "Default parameters",
+                                    marker = :star5,
+                                    markersize = 12,
+                                    markerstrokewidth = 0,
+                                    color = :gold)
+                            break
+                        end
+                    end
+                    
+                    # Add baseline solver performance
+                    if !isempty(baseline_results)
+                        for baseline in baseline_results
+                            x_baseline = baseline["avg_changes"]
+                            y_baseline = getfield(baseline["error_metrics"], Symbol(metric_key))
+                            
+                            marker_shape = baseline["solver"] == "OBSERVEDTIME" ? :hexagon : :pentagon
+                            marker_color = baseline["solver"] == "OBSERVEDTIME" ? :orange : :magenta
+                            
+                            scatter!(p_individual, [x_baseline], [y_baseline],
+                                    label = baseline["solver"],
+                                    marker = marker_shape,
+                                    markersize = 10,
+                                    markerstrokewidth = 0,
+                                    color = marker_color)
                         end
                     end
                 else
-                    # For other sweeps, show connected line plot
+                    # For other sweeps, show connected line plot (no black edges, no annotations)
                     plot!(p_individual, x_data, y_data,
                           marker = :circle,
                           markersize = 8,
+                          markerstrokewidth = 0,
                           linewidth = 3,
                           color = color)
-                    
-                    # Add parameter labels
-                    if sweep_name == "lambda_c"
-                        labels = [@sprintf("λc=%.1f", r["lambda_c"]) for r in sweep_results]
-                    elseif sweep_name == "lambda_e"
-                        labels = [@sprintf("λe=%.1f", r["lambda_e"]) for r in sweep_results]
-                    else
-                        labels = [@sprintf("r=%.1f", r["lambda_ratio"]) for r in sweep_results]  
-                    end
-                    
-                    for (i, label) in enumerate(labels)
-                        annotate!(p_individual, x_data[i], y_data[i],
-                                 text(label, 9, :bottom, :left))
-                    end
                 end
                 
                 # Save individual plots
@@ -587,21 +724,43 @@ function create_pareto_summary_table(results, output_dir::String)
     table_data = []
     
     for result in results
-        metrics = result["error_metrics"]
-        push!(table_data, Dict(
-            "sweep_type" => result["sweep_type"],
-            "lambda_c" => result["lambda_c"],
-            "lambda_e" => result["lambda_e"],
-            "lambda_ratio" => get(result, "lambda_ratio", missing),
-            "avg_changes" => result["avg_changes"],
-            "avg_weighted_error" => metrics.avg_weighted_error,
-            "avg_timesteps_with_error" => metrics.avg_timesteps_with_error,
-            "final_error" => metrics.final_error,
-            "rms_error" => metrics.rms_error,
-            "max_error" => metrics.max_error,
-            "total_reward" => result["total_reward"],
-            "policy_solve_time" => result["policy_solve_time"]
-        ))
+        # Handle baseline results differently
+        if get(result, "is_baseline", false)
+            metrics = result["error_metrics"]
+            push!(table_data, Dict(
+                "sweep_type" => "baseline",
+                "solver" => result["solver"],
+                "lambda_c" => DEFAULT_LAMBDA_C,  # Baselines use default parameters
+                "lambda_e" => DEFAULT_LAMBDA_E,
+                "lambda_ratio" => missing,
+                "avg_changes" => result["avg_changes"],
+                "avg_weighted_error" => metrics.avg_weighted_error,
+                "avg_timesteps_with_error" => metrics.avg_timesteps_with_error,
+                "final_error" => metrics.final_error,
+                "rms_error" => metrics.rms_error,
+                "max_error" => metrics.max_error,
+                "total_reward" => result["total_reward"],
+                "policy_solve_time" => 0.0  # Baselines don't have policy solve time
+            ))
+        else
+            # Handle parameter sweep results
+            metrics = result["error_metrics"]
+            push!(table_data, Dict(
+                "sweep_type" => result["sweep_type"],
+                "solver" => "QMDP",  # Assuming QMDP for parameter sweeps
+                "lambda_c" => result["lambda_c"],
+                "lambda_e" => result["lambda_e"],
+                "lambda_ratio" => get(result, "lambda_ratio", missing),
+                "avg_changes" => result["avg_changes"],
+                "avg_weighted_error" => metrics.avg_weighted_error,
+                "avg_timesteps_with_error" => metrics.avg_timesteps_with_error,
+                "final_error" => metrics.final_error,
+                "rms_error" => metrics.rms_error,
+                "max_error" => metrics.max_error,
+                "total_reward" => result["total_reward"],
+                "policy_solve_time" => result["policy_solve_time"]
+            ))
+        end
     end
     
     df = DataFrame(table_data)
