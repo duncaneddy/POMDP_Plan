@@ -30,13 +30,16 @@ const DEFAULT_LAMBDA_E = 2.0
 const DEFAULT_LAMBDA_F = 1000.0
 
 # Parameter sweep configurations
-# const DEFAULT_LAMBDA_C_SWEEP = [0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
-# const DEFAULT_LAMBDA_E_SWEEP = [0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
-
-const DEFAULT_LAMBDA_C_SWEEP = [2.0, 3.0]
-const DEFAULT_LAMBDA_E_SWEEP = [2.0, 3.0]
+const DEFAULT_LAMBDA_C_SWEEP = [0.1, 0.2, 0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
+const DEFAULT_LAMBDA_E_SWEEP = [0.1, 0.2, 0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
 const DEFAULT_STD_DIVISOR = 3.0
 const DEFAULT_DISCOUNT = 0.98
+
+# Consistent color scheme with solver analysis
+const BASELINE_COLORS = Dict(
+    "OBSERVEDTIME" => :blue,
+    "MOSTLIKELY" => :red
+)
 
 # Plot settings
 const PLOT_SETTINGS = Dict(
@@ -108,9 +111,7 @@ function parse_commandline()
     return parse_args(s)
 end
 
-"""
-Error metric calculations for evaluating prediction quality.
-"""
+# Error metric calculations for evaluating prediction quality
 struct ErrorMetrics
     avg_weighted_error::Float64      # Average error weighted by timesteps
     avg_timesteps_with_error::Float64 # Fraction of timesteps with error
@@ -121,8 +122,6 @@ struct ErrorMetrics
 end
 
 function compute_error_metrics(run_details)
-    """Compute comprehensive error metrics from simulation run details."""
-    
     if isempty(run_details)
         return ErrorMetrics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     end
@@ -151,8 +150,6 @@ function compute_error_metrics(run_details)
 end
 
 function aggregate_error_metrics(metrics_list::Vector{ErrorMetrics})
-    """Aggregate error metrics across multiple simulation runs."""
-    
     if isempty(metrics_list)
         return ErrorMetrics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     end
@@ -168,8 +165,6 @@ function aggregate_error_metrics(metrics_list::Vector{ErrorMetrics})
 end
 
 function extract_problem_parameters(reference_data_path::String)
-    """Extract min/max end times from reference data path or content."""
-    
     # Try to parse from filename first (more reliable)
     if contains(reference_data_path, "l_2_u_13")
         return 2, 13
@@ -214,8 +209,6 @@ function evaluate_baseline_solvers(
     std_divisor::Float64,
     verbose::Bool
 )
-    """Evaluate baseline solvers (OBSERVEDTIME, MOSTLIKELY) for comparison."""
-    
     baseline_results = []
     
     # Load reference data
@@ -271,6 +264,7 @@ function evaluate_baseline_solvers(
         baseline_result = Dict(
             "solver" => solver,
             "avg_changes" => avg_changes,
+            "avg_change_magnitude" => mean(stats["avg_change_magnitudes"]),
             "error_metrics" => aggregated_metrics,
             "total_reward" => mean(stats["rewards"]),
             "is_baseline" => true
@@ -293,8 +287,6 @@ function evaluate_reward_parameters(
     std_divisor::Float64,
     verbose::Bool
 )
-    """Evaluate a single reward parameter configuration."""
-    
     if verbose
         println("Evaluating λc=$(lambda_c), λe=$(lambda_e), λf=$(lambda_f)")
     end
@@ -345,14 +337,16 @@ function evaluate_reward_parameters(
     # Aggregate metrics
     aggregated_metrics = aggregate_error_metrics(error_metrics_list)
     
-    # Calculate announcement changes
+    # Calculate announcement changes and magnitudes
     avg_changes = mean(stats["num_changes"])
+    avg_change_magnitude = mean(stats["avg_change_magnitudes"])
     
     return Dict(
         "lambda_c" => lambda_c,
         "lambda_e" => lambda_e,
         "lambda_f" => lambda_f,
         "avg_changes" => avg_changes,
+        "avg_change_magnitude" => avg_change_magnitude,
         "error_metrics" => aggregated_metrics,
         "total_reward" => mean(stats["rewards"]),
         "policy_solve_time" => policy_data["policy_solve_time"]
@@ -371,15 +365,7 @@ function run_pareto_sweep(
     output_dir::String,
     verbose::Bool
 )
-    """Run comprehensive parameter sweep for Pareto frontier analysis."""
-    
     mkpath(output_dir)
-    
-    # Four types of sweeps:
-    # 1. Vary lambda_c, keep lambda_e constant
-    # 2. Vary lambda_e, keep lambda_c constant  
-    # 3. Vary ratio lambda_c/lambda_e, keep sum constant
-    # 4. Full grid sweep (all combinations of lambda_c and lambda_e)
     
     all_results = []
     
@@ -470,7 +456,7 @@ function run_pareto_sweep(
 end
 
 function create_pareto_plots(results, output_dir::String)
-    """Generate comprehensive Pareto frontier plots."""
+    println("Generating Pareto frontier plots...")
     
     plots_dir = joinpath(output_dir, "plots")
     mkpath(plots_dir)
@@ -489,11 +475,12 @@ function create_pareto_plots(results, output_dir::String)
     
     # Define different error metrics to plot
     error_metric_configs = [
-        ("avg_weighted_error", "Average Weighted Error", "Error (Announcement vs True Time)"),
+        ("avg_weighted_error", "Average Weighted Error", "Average Error"),
         ("avg_timesteps_with_error", "Fraction Timesteps with Error", "Fraction of Timesteps with Error"),
         ("final_error", "Final Prediction Error", "Final Error (Time Units)"),
         ("rms_error", "RMS Error", "RMS Error (Time Units)"),
-        ("max_error", "Maximum Error", "Maximum Error (Time Units)")
+        ("max_error", "Maximum Error", "Maximum Error (Time Units)"),
+        ("avg_change_magnitude", "Average Change Magnitude", "Average Change Magnitude")
     ]
     
     for (metric_key, metric_name, y_label) in error_metric_configs
@@ -503,7 +490,6 @@ function create_pareto_plots(results, output_dir::String)
         p_combined = plot(
             xlabel = "Average Number of Announcement Changes",
             ylabel = y_label,
-            title = "Pareto Frontier: $metric_name vs Changes",
             legend = :topright,
             size = (1000, 700);
             PLOT_SETTINGS...
@@ -512,16 +498,22 @@ function create_pareto_plots(results, output_dir::String)
         # Plot grid sweep results as scatter points with Pareto frontier
         if !isempty(grid_results)
             x_data_grid = [r["avg_changes"] for r in grid_results]
-            y_data_grid = [getfield(r["error_metrics"], Symbol(metric_key)) for r in grid_results]
             
-            # Plot all grid points as light scatter (no black edges)
+            # Handle special case for avg_change_magnitude metric
+            if metric_key == "avg_change_magnitude"
+                y_data_grid = [r["avg_change_magnitude"] for r in grid_results]
+            else
+                y_data_grid = [getfield(r["error_metrics"], Symbol(metric_key)) for r in grid_results]
+            end
+            
+            # Plot all grid points with purple color
             scatter!(p_combined, x_data_grid, y_data_grid,
                     label = "All parameter combinations",
                     marker = :circle,
                     markersize = 4,
                     markerstrokewidth = 0,
                     alpha = 0.6,
-                    color = :lightblue)
+                    color = :purple)
             
             # Compute and plot Pareto frontier
             pareto_points, pareto_indices = compute_pareto_frontier_from_points(x_data_grid, y_data_grid)
@@ -530,17 +522,17 @@ function create_pareto_plots(results, output_dir::String)
                 pareto_x = [p[1] for p in pareto_points]
                 pareto_y = [p[2] for p in pareto_points]
                 
-                # Plot Pareto frontier as connected line with prominent markers (no black edges)
+                # Plot Pareto frontier with distinct color
                 plot!(p_combined, pareto_x, pareto_y,
                       label = "Pareto frontier",
                       marker = :circle,
                       markersize = 6,
                       markerstrokewidth = 0,
                       linewidth = 3,
-                      color = :red)
+                      color = :darkorange)
             end
             
-            # Highlight default parameter combination with gold star
+            # Highlight default parameter combination with visible color
             for (i, result) in enumerate(grid_results)
                 if abs(result["lambda_c"] - DEFAULT_LAMBDA_C) < 0.1 && abs(result["lambda_e"] - DEFAULT_LAMBDA_E) < 0.1
                     scatter!(p_combined, [x_data_grid[i]], [y_data_grid[i]],
@@ -548,20 +540,26 @@ function create_pareto_plots(results, output_dir::String)
                             marker = :star5,
                             markersize = 12,
                             markerstrokewidth = 0,
-                            color = :gold)
+                            color = :black)
                     break
                 end
             end
         end
         
-        # Plot baseline solver performance
+        # Plot baseline solver performance with consistent colors
         if !isempty(baseline_results)
             for baseline in baseline_results
                 x_baseline = baseline["avg_changes"]
-                y_baseline = getfield(baseline["error_metrics"], Symbol(metric_key))
+                
+                # Handle special case for avg_change_magnitude metric
+                if metric_key == "avg_change_magnitude"
+                    y_baseline = baseline["avg_change_magnitude"]
+                else
+                    y_baseline = getfield(baseline["error_metrics"], Symbol(metric_key))
+                end
                 
                 marker_shape = baseline["solver"] == "OBSERVEDTIME" ? :hexagon : :pentagon
-                marker_color = baseline["solver"] == "OBSERVEDTIME" ? :orange : :magenta
+                marker_color = get(BASELINE_COLORS, baseline["solver"], :black)
                 
                 scatter!(p_combined, [x_baseline], [y_baseline],
                         label = baseline["solver"],
@@ -572,10 +570,15 @@ function create_pareto_plots(results, output_dir::String)
             end
         end
         
-        # Plot lambda_c sweep (no black edges)
+        # Plot lambda_c sweep
         if !isempty(lambda_c_results)
             x_data_c = [r["avg_changes"] for r in lambda_c_results]
-            y_data_c = [getfield(r["error_metrics"], Symbol(metric_key)) for r in lambda_c_results]
+            
+            if metric_key == "avg_change_magnitude"
+                y_data_c = [r["avg_change_magnitude"] for r in lambda_c_results]
+            else
+                y_data_c = [getfield(r["error_metrics"], Symbol(metric_key)) for r in lambda_c_results]
+            end
             
             plot!(p_combined, x_data_c, y_data_c,
                   label = "λc sweep (λe=2.0)",
@@ -586,10 +589,15 @@ function create_pareto_plots(results, output_dir::String)
                   color = :blue)
         end
         
-        # Plot lambda_e sweep (no black edges)
+        # Plot lambda_e sweep
         if !isempty(lambda_e_results)
             x_data_e = [r["avg_changes"] for r in lambda_e_results]
-            y_data_e = [getfield(r["error_metrics"], Symbol(metric_key)) for r in lambda_e_results]
+            
+            if metric_key == "avg_change_magnitude"
+                y_data_e = [r["avg_change_magnitude"] for r in lambda_e_results]
+            else
+                y_data_e = [getfield(r["error_metrics"], Symbol(metric_key)) for r in lambda_e_results]
+            end
             
             plot!(p_combined, x_data_e, y_data_e,
                   label = "λe sweep (λc=3.0)", 
@@ -600,10 +608,15 @@ function create_pareto_plots(results, output_dir::String)
                   color = :green)
         end
         
-        # Plot ratio sweep (no black edges)
+        # Plot ratio sweep
         if !isempty(ratio_results)
             x_data_r = [r["avg_changes"] for r in ratio_results]
-            y_data_r = [getfield(r["error_metrics"], Symbol(metric_key)) for r in ratio_results]
+            
+            if metric_key == "avg_change_magnitude"
+                y_data_r = [r["avg_change_magnitude"] for r in ratio_results]
+            else
+                y_data_r = [getfield(r["error_metrics"], Symbol(metric_key)) for r in ratio_results]
+            end
             
             plot!(p_combined, x_data_r, y_data_r,
                   label = "Ratio sweep (λc+λe=5.0)",
@@ -611,8 +624,26 @@ function create_pareto_plots(results, output_dir::String)
                   markersize = 5,
                   markerstrokewidth = 0,
                   linewidth = 2,
-                  color = :purple)
+                  color = :brown)
         end
+        
+        # Add direction of improvement arrow in bottom left
+        x_lims = xlims(p_combined)
+        y_lims = ylims(p_combined)
+        
+        # Position arrow start in bottom left
+        arrow_x = x_lims[1] + (x_lims[2] - x_lims[1]) * 0.15
+        arrow_y = y_lims[1] + (y_lims[2] - y_lims[1]) * 0.15
+        
+        # Scale arrow proportional to plot dimensions
+        arrow_dx = -(x_lims[2] - x_lims[1]) * 0.08
+        arrow_dy = -(y_lims[2] - y_lims[1]) * 0.08
+        
+        quiver!(p_combined, [arrow_x], [arrow_y], 
+                quiver=([arrow_dx], [arrow_dy]),
+                color=:black, 
+                linewidth=2,
+                label="Direction of Improvement")
         
         # Save in multiple formats
         base_filename = "pareto_$(metric_key)"
@@ -624,21 +655,25 @@ function create_pareto_plots(results, output_dir::String)
         for (sweep_results, sweep_name, color) in [
             (lambda_c_results, "lambda_c", :blue),
             (lambda_e_results, "lambda_e", :green),
-            (ratio_results, "ratio", :purple),
-            (grid_results, "grid", :red)
+            (ratio_results, "ratio", :brown),
+            (grid_results, "grid", :darkorange)
         ]
             if !isempty(sweep_results)
                 p_individual = plot(
                     xlabel = "Average Number of Announcement Changes",
                     ylabel = y_label,
-                    title = "$(metric_name) vs Changes ($(replace(sweep_name, "_" => " ")) sweep)",
-                    legend = (sweep_name == "grid"),  # Only show legend for grid plot
+                    legend = (sweep_name == "grid"),
                     size = (800, 600);
                     PLOT_SETTINGS...
                 )
                 
                 x_data = [r["avg_changes"] for r in sweep_results]
-                y_data = [getfield(r["error_metrics"], Symbol(metric_key)) for r in sweep_results]
+                
+                if metric_key == "avg_change_magnitude"
+                    y_data = [r["avg_change_magnitude"] for r in sweep_results]
+                else
+                    y_data = [getfield(r["error_metrics"], Symbol(metric_key)) for r in sweep_results]
+                end
                 
                 if sweep_name == "grid"
                     # For grid sweep, show scatter plot with Pareto frontier
@@ -648,7 +683,7 @@ function create_pareto_plots(results, output_dir::String)
                             markersize = 4,
                             markerstrokewidth = 0,
                             alpha = 0.6,
-                            color = :lightblue)
+                            color = :purple)
                     
                     # Add Pareto frontier
                     pareto_points, pareto_indices = compute_pareto_frontier_from_points(x_data, y_data)
@@ -665,7 +700,7 @@ function create_pareto_plots(results, output_dir::String)
                               color = color)
                     end
                     
-                    # Highlight default parameter combination with gold star
+                    # Highlight default parameter combination
                     for (i, result) in enumerate(sweep_results)
                         if abs(result["lambda_c"] - DEFAULT_LAMBDA_C) < 0.1 && abs(result["lambda_e"] - DEFAULT_LAMBDA_E) < 0.1
                             scatter!(p_individual, [x_data[i]], [y_data[i]],
@@ -673,7 +708,7 @@ function create_pareto_plots(results, output_dir::String)
                                     marker = :star5,
                                     markersize = 12,
                                     markerstrokewidth = 0,
-                                    color = :gold)
+                                    color = :black)
                             break
                         end
                     end
@@ -682,10 +717,15 @@ function create_pareto_plots(results, output_dir::String)
                     if !isempty(baseline_results)
                         for baseline in baseline_results
                             x_baseline = baseline["avg_changes"]
-                            y_baseline = getfield(baseline["error_metrics"], Symbol(metric_key))
+                            
+                            if metric_key == "avg_change_magnitude"
+                                y_baseline = baseline["avg_change_magnitude"]
+                            else
+                                y_baseline = getfield(baseline["error_metrics"], Symbol(metric_key))
+                            end
                             
                             marker_shape = baseline["solver"] == "OBSERVEDTIME" ? :hexagon : :pentagon
-                            marker_color = baseline["solver"] == "OBSERVEDTIME" ? :orange : :magenta
+                            marker_color = get(BASELINE_COLORS, baseline["solver"], :black)
                             
                             scatter!(p_individual, [x_baseline], [y_baseline],
                                     label = baseline["solver"],
@@ -696,7 +736,7 @@ function create_pareto_plots(results, output_dir::String)
                         end
                     end
                 else
-                    # For other sweeps, show connected line plot (no black edges, no annotations)
+                    # For other sweeps, show connected line plot
                     plot!(p_individual, x_data, y_data,
                           marker = :circle,
                           markersize = 8,
@@ -704,6 +744,23 @@ function create_pareto_plots(results, output_dir::String)
                           linewidth = 3,
                           color = color)
                 end
+                
+                # Add direction of improvement arrow for individual plots too
+                x_lims = xlims(p_individual)
+                y_lims = ylims(p_individual)
+                
+                arrow_x = x_lims[1] + (x_lims[2] - x_lims[1]) * 0.15
+                arrow_y = y_lims[1] + (y_lims[2] - y_lims[1]) * 0.15
+                
+                # Scale arrow proportional to plot dimensions
+                arrow_dx = -(x_lims[2] - x_lims[1]) * 0.08
+                arrow_dy = -(y_lims[2] - y_lims[1]) * 0.08
+                
+                quiver!(p_individual, [arrow_x], [arrow_y], 
+                        quiver=([arrow_dx], [arrow_dy]),
+                        color=:black, 
+                        linewidth=2,
+                        label="Direction of Improvement")
                 
                 # Save individual plots
                 individual_filename = "pareto_$(metric_key)_$(sweep_name)_sweep"
@@ -721,8 +778,6 @@ function create_pareto_plots(results, output_dir::String)
 end
 
 function create_pareto_summary_table(results, output_dir::String)
-    """Create summary table of all parameter combinations and their performance."""
-    
     # Convert results to DataFrame for easier analysis
     table_data = []
     
@@ -733,28 +788,30 @@ function create_pareto_summary_table(results, output_dir::String)
             push!(table_data, Dict(
                 "sweep_type" => "baseline",
                 "solver" => result["solver"],
-                "lambda_c" => DEFAULT_LAMBDA_C,  # Baselines use default parameters
+                "lambda_c" => DEFAULT_LAMBDA_C,
                 "lambda_e" => DEFAULT_LAMBDA_E,
                 "lambda_ratio" => missing,
                 "avg_changes" => result["avg_changes"],
+                "avg_change_magnitude" => result["avg_change_magnitude"],
                 "avg_weighted_error" => metrics.avg_weighted_error,
                 "avg_timesteps_with_error" => metrics.avg_timesteps_with_error,
                 "final_error" => metrics.final_error,
                 "rms_error" => metrics.rms_error,
                 "max_error" => metrics.max_error,
                 "total_reward" => result["total_reward"],
-                "policy_solve_time" => 0.0  # Baselines don't have policy solve time
+                "policy_solve_time" => 0.0
             ))
         else
             # Handle parameter sweep results
             metrics = result["error_metrics"]
             push!(table_data, Dict(
                 "sweep_type" => result["sweep_type"],
-                "solver" => "QMDP",  # Assuming QMDP for parameter sweeps
+                "solver" => "QMDP",
                 "lambda_c" => result["lambda_c"],
                 "lambda_e" => result["lambda_e"],
                 "lambda_ratio" => get(result, "lambda_ratio", missing),
                 "avg_changes" => result["avg_changes"],
+                "avg_change_magnitude" => result["avg_change_magnitude"],
                 "avg_weighted_error" => metrics.avg_weighted_error,
                 "avg_timesteps_with_error" => metrics.avg_timesteps_with_error,
                 "final_error" => metrics.final_error,
@@ -772,7 +829,7 @@ function create_pareto_summary_table(results, output_dir::String)
     CSV.write(joinpath(output_dir, "pareto_summary_table.csv"), df)
     
     # Find Pareto optimal points for each error metric
-    error_metrics = ["avg_weighted_error", "avg_timesteps_with_error", "final_error", "rms_error", "max_error"]
+    error_metrics = ["avg_weighted_error", "avg_timesteps_with_error", "final_error", "rms_error", "max_error", "avg_change_magnitude"]
     
     pareto_analysis = Dict()
     for metric in error_metrics
@@ -792,8 +849,6 @@ function create_pareto_summary_table(results, output_dir::String)
 end
 
 function find_pareto_optimal_points(df, x_col, y_col)
-    """Find Pareto optimal points that minimize y for each x value."""
-    
     # Sort by x column first
     sorted_df = sort(df, x_col)
     
@@ -811,8 +866,6 @@ function find_pareto_optimal_points(df, x_col, y_col)
 end
 
 function compute_pareto_frontier_from_points(x_values, y_values)
-    """Compute Pareto frontier from scatter points (minimize both x and y)."""
-    
     # Create array of (x, y, index) tuples
     points = [(x_values[i], y_values[i], i) for i in 1:length(x_values)]
     
