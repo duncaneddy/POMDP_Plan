@@ -5,9 +5,14 @@
 
 function calculate_reward(t::Int, Ta::Int, Tt::Int, action_time::Int, min_end_time::Int, max_end_time::Int; lambda_c::Real = 3.0, lambda_e::Real = 2.0, lambda_f::Real = 1000.0)
     
+    r = 0.0
+
     # If the project is done, return neutral reward
     if t >= Tt || t + 1 == max_end_time
-        return 0.0
+        return r
+    else
+        # Penalize for continuing the project
+        r += -1.5
     end
 
     # Simple reward - penalize for the difference between announced and true end time

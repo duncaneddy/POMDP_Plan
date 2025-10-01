@@ -2,6 +2,7 @@
 
 # Generate all plots and tables for the paper - works with incremental data structure
 # IMPROVED VERSION with better formatting, consistent colors, and higher quality outputs
+# ENHANCED with average weighted error analysis
 
 using Pkg
 push!(LOAD_PATH, dirname(dirname(@__FILE__)))
@@ -51,6 +52,102 @@ const PROBLEM_SIZE_TO_TMAX = Dict(
     "xlarge" => 52
 )
 
+# Error metrics struct for comprehensive error analysis
+struct ErrorMetrics
+    avg_weighted_error::Float64      # Average error weighted by timesteps
+    avg_timesteps_with_error::Float64 # Fraction of timesteps with error
+    final_error::Float64             # Final prediction error
+    rms_error::Float64              # Root mean square error over time
+    max_error::Float64              # Maximum error at any timestep
+    avg_absolute_error::Float64     # Simple average absolute error
+end
+
+function compute_error_metrics(run_details)
+    """Compute comprehensive error metrics from simulation run details."""
+    
+    if isempty(run_details)
+        return ErrorMetrics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    end
+    
+    # Extract error at each timestep
+    errors = [abs(step["action"] - step["Tt"]) for step in run_details]
+    timesteps_with_error = sum(errors .> 0)
+    total_timesteps = length(errors)
+    
+    # Compute metrics
+    avg_weighted_error = sum(errors) / total_timesteps
+    avg_timesteps_with_error = timesteps_with_error / total_timesteps
+    final_error = errors[end]
+    rms_error = sqrt(sum(errors.^2) / total_timesteps)
+    max_error = maximum(errors)
+    avg_absolute_error = mean(errors)
+    
+    return ErrorMetrics(
+        avg_weighted_error,
+        avg_timesteps_with_error, 
+        final_error,
+        rms_error,
+        max_error,
+        avg_absolute_error
+    )
+end
+
+function aggregate_error_metrics(metrics_list::Vector{ErrorMetrics})
+    """Aggregate error metrics across multiple simulation runs."""
+    
+    if isempty(metrics_list)
+        return ErrorMetrics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    end
+    
+    return ErrorMetrics(
+        mean([m.avg_weighted_error for m in metrics_list]),
+        mean([m.avg_timesteps_with_error for m in metrics_list]),
+        mean([m.final_error for m in metrics_list]),
+        mean([m.rms_error for m in metrics_list]),
+        mean([m.max_error for m in metrics_list]),
+        mean([m.avg_absolute_error for m in metrics_list])
+    )
+end
+
+"""
+Compute weighted error metrics from detailed batch files.
+"""
+function compute_weighted_error_from_detailed_data(experiment_dir::String, size_name::String, solver_name::String)
+    detailed_dir = joinpath(experiment_dir, "detailed_data", size_name, solver_name)
+    
+    if !isdir(detailed_dir)
+        return nothing
+    end
+    
+    error_metrics_list = ErrorMetrics[]
+    
+    # Find all detailed batch files
+    batch_files = filter(f -> startswith(f, "detailed_batch"), readdir(detailed_dir))
+    
+    for batch_file in batch_files
+        batch_path = joinpath(detailed_dir, batch_file)
+        try
+            batch_data = JSON.parsefile(batch_path)
+            
+            for detailed_metrics in batch_data
+                if haskey(detailed_metrics, "iterations")
+                    run_details = detailed_metrics["iterations"]
+                    metrics = compute_error_metrics(run_details)
+                    push!(error_metrics_list, metrics)
+                end
+            end
+        catch e
+            println("Warning: Could not load detailed batch file $batch_file for $solver_name: $e")
+        end
+    end
+    
+    if isempty(error_metrics_list)
+        return nothing
+    end
+    
+    return aggregate_error_metrics(error_metrics_list)
+end
+
 """
 Create two-line LaTeX formatted labels for problem sizes.
 """
@@ -73,7 +170,6 @@ function create_two_line_labels(problem_sizes::Vector{String})
     
     return positions, labels
 end
-
 
 """
 Format solver names for display (capitalize words, remove underscores).
@@ -585,27 +681,30 @@ function create_latex_reward_table(df::DataFrame, filepath::String)
 end
 
 """
-Create LaTeX formatted statistics table.
+Create LaTeX formatted statistics table with weighted error.
 """
 function create_latex_statistics_table(df::DataFrame, filepath::String)
     open(filepath, "w") do f
         println(f, "\\begin{table}[htbp]")
         println(f, "\\centering")
         println(f, "\\caption{Performance Statistics by Solver and Problem Size}")
-        println(f, "\\begin{tabular}{llrrrrrr}")
+        println(f, "\\begin{tabular}{llrrrrrrr}")
         println(f, "\\hline")
-        println(f, "Size & Solver & \\multicolumn{2}{c}{Announcement Changes} & Final Error & Incorrect & \\multicolumn{2}{c}{Change Magnitude} \\\\")
-        println(f, " & & Mean & Std & Mean & (\\%) & Mean & Std \\\\")
+        println(f, "Size & Solver & \\multicolumn{2}{c}{Changes} & Final & Incorrect & \\multicolumn{2}{c}{Change Mag.} & Weighted \\\\")
+        println(f, " & & Mean & Std & Error & (\\%) & Mean & Std & Error \\\\")
         println(f, "\\hline")
         
         for row in eachrow(df)
+            weighted_error_str = "Avg Weighted Error" in names(df) && !ismissing(row["Avg Weighted Error"]) ? @sprintf("%.3f", row["Avg Weighted Error"]) : "N/A"
+            
             println(f, "$(row["Problem Size"]) & $(row["Solver"]) & " *
                       @sprintf("%.2f", row["Avg Announcement Changes"]) * " & " *
                       @sprintf("%.2f", row["Std Announcement Changes"]) * " & " *
                       @sprintf("%.2f", row["Avg Final Error"]) * " & " *
                       @sprintf("%.1f", row["Incorrect Final (%)"]) * " & " *
                       @sprintf("%.2f", row["Avg Change Magnitude"]) * " & " *
-                      @sprintf("%.2f", row["Std Change Magnitude"]) * " \\\\")
+                      @sprintf("%.2f", row["Std Change Magnitude"]) * " & " *
+                      weighted_error_str * " \\\\")
         end
         
         println(f, "\\hline")
@@ -617,7 +716,7 @@ function create_latex_statistics_table(df::DataFrame, filepath::String)
 end
 
 """
-Create additional statistics plots with updated x-axis labels.
+Create additional statistics plots with updated x-axis labels and weighted error.
 """
 function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_dir)
     stats_plot_dir = joinpath(output_dir, "statistics_plots")
@@ -678,7 +777,7 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
     
     # Plot average final error with two-line labels
     p2 = Plots.plot(xlabel = "Problem Size",
-              ylabel = "Average Error", 
+              ylabel = "Average Final Error", 
               size = (800, 600),
               legend = :right;
               PLOT_SETTINGS...)
@@ -814,12 +913,58 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
     plot!(p4, xticks = (positions, two_line_labels))
     
     Plots.savefig(p4, joinpath(stats_plot_dir, "avg_change_magnitude.pdf"))
+    
+    p5 = Plots.plot(xlabel = "Problem Size",
+              ylabel = "Average Weighted Error",
+              size = (800, 600),
+              legend = :topleft;
+              PLOT_SETTINGS...)
+    
+    for solver in sorted_solvers
+        # Handle solver name mismatch (space vs underscore)
+        solver_data = filter(row -> replace(row["Solver"], " " => "_") == solver, df)
+        
+        if !isempty(solver_data)
+            y_data = []
+            x_data = []
+            
+            for (i, size) in enumerate(sorted_sizes)
+                # Handle case mismatch (capitalize first letter)
+                size_capitalized = uppercase(string(size[1])) * lowercase(size[2:end])
+                if size == "xlarge"
+                    size_capitalized = "XLarge"  # Special case for xlarge
+                end
+                size_rows = filter(row -> row["Problem Size"] == size_capitalized, solver_data)
+                
+                if !isempty(size_rows) && "Avg Weighted Error" in names(size_rows)
+                    y_val = size_rows[1, "Avg Weighted Error"]
+                    push!(y_data, y_val)
+                    push!(x_data, Float64(i))
+                end
+            end
+            
+            if !isempty(y_data)
+                plot!(p5, x_data, y_data,
+                      label = solver,
+                      marker = :circle,
+                      markersize = 6,
+                      linewidth = 2,
+                      color = get_solver_color(solver),
+                      markerstrokewidth = 0)
+            end
+        end
+    end
+    
+    # Set custom x-axis labels
+    plot!(p5, xticks = (positions, two_line_labels))
+    
+    Plots.savefig(p5, joinpath(stats_plot_dir, "avg_weighted_error.pdf"))
 end
 
 """
-Generate combined visualizations for the paper with updated labels.
+Generate combined visualizations for the paper with updated labels and weighted error.
 """
-function generate_combined_plots(results, problem_sizes, solvers, output_dir)
+function generate_combined_plots(results, problem_sizes, solvers, output_dir, weighted_error_data=nothing)
     println("Generating combined visualizations...")
     
     combined_dir = joinpath(output_dir, "combined_plots")
@@ -832,7 +977,7 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
     # Get two-line labels
     positions, two_line_labels = create_two_line_labels(sorted_sizes)
     
-    # Create a 2x2 subplot of key metrics
+    # Create a 2x3 subplot of key metrics (added weighted error)
     p1 = Plots.plot(legend = :bottomleft,
                     ylabel = "Mean Reward";
                     PLOT_SETTINGS...)
@@ -846,6 +991,12 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
                     yscale = :log10,
                     ylabel = "Time (seconds)";
                     PLOT_SETTINGS...)
+    p5 = Plots.plot(legend = :topright,
+                    ylabel = "Weighted Error";
+                    PLOT_SETTINGS...)
+    p6 = Plots.plot(legend = :topright,
+                    ylabel = "Change Magnitude";
+                    PLOT_SETTINGS...)
     
     for solver in sorted_solvers
         # Collect data across problem sizes
@@ -853,6 +1004,8 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
         error_rates = []
         avg_changes = []
         policy_times = []
+        weighted_errors = []
+        change_magnitudes = []
         x_positions = []
         
         for (i, size) in enumerate(sorted_sizes)
@@ -868,6 +1021,13 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
                 
                 push!(avg_changes, mean(solver_results["num_changes"]))
                 push!(policy_times, get(solver_results, "policy_solve_time", 0.001))
+                push!(change_magnitudes, mean(solver_results["avg_change_magnitudes"]))
+                
+                # Add weighted error if available
+                if weighted_error_data !== nothing && haskey(weighted_error_data, size) && haskey(weighted_error_data[size], solver)
+                    push!(weighted_errors, weighted_error_data[size][solver])
+                end
+                
                 push!(x_positions, Float64(i))
             end
         end
@@ -886,6 +1046,16 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
         plot!(p4, x_positions, policy_times, 
               label = solver, marker = :circle, markersize = 6, markerstrokewidth = 0,
               linewidth = 2, color = solver_color)
+        plot!(p6, x_positions, change_magnitudes,
+              label = solver, marker = :circle, markersize = 6, markerstrokewidth = 0,
+              linewidth = 2, color = solver_color)
+        
+        # Plot weighted errors if available
+        if !isempty(weighted_errors)
+            plot!(p5, x_positions[1:length(weighted_errors)], weighted_errors,
+                  label = solver, marker = :circle, markersize = 6, markerstrokewidth = 0,
+                  linewidth = 2, color = solver_color)
+        end
     end
     
     # Set two-line labels for all subplots
@@ -893,9 +1063,11 @@ function generate_combined_plots(results, problem_sizes, solvers, output_dir)
     plot!(p2, xticks = (positions, two_line_labels), xlabel = "Problem Size")
     plot!(p3, xticks = (positions, two_line_labels), xlabel = "Problem Size") 
     plot!(p4, xticks = (positions, two_line_labels), xlabel = "Problem Size")
+    plot!(p5, xticks = (positions, two_line_labels), xlabel = "Problem Size")
+    plot!(p6, xticks = (positions, two_line_labels), xlabel = "Problem Size")
     
-    combined = Plots.plot(p1, p2, p3, p4, layout = (2, 2), 
-                         size = (1400, 1000);
+    combined = Plots.plot(p1, p2, p3, p4, p5, p6, layout = (2, 3), 
+                         size = (2100, 1000);
                          PLOT_SETTINGS...)
     
     Plots.savefig(combined, joinpath(combined_dir, "key_metrics_comparison.pdf"))
@@ -1211,14 +1383,45 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
 end
 
 """
-Generate comprehensive statistics table
+Compute weighted error metrics for all problem sizes and solvers.
 """
-function generate_statistics_table(results, problem_sizes, solvers, output_dir)
-    println("Generating statistics table...")
+function compute_all_weighted_errors(experiment_dir::String, problem_sizes::Vector{String}, solvers::Vector{Any})
+    println("Computing weighted error metrics from detailed data...")
+    
+    weighted_error_data = Dict()
+    
+    for size in problem_sizes
+        weighted_error_data[size] = Dict()
+        
+        for solver in solvers
+            println("  Processing $(size) - $(solver)")
+            
+            error_metrics = compute_weighted_error_from_detailed_data(experiment_dir, size, solver)
+            
+            if error_metrics !== nothing
+                weighted_error_data[size][solver] = error_metrics.avg_weighted_error
+            else
+                println("    Warning: Could not compute weighted error for $(size) - $(solver)")
+                weighted_error_data[size][solver] = NaN
+            end
+        end
+    end
+    
+    return weighted_error_data
+end
+
+"""
+Generate comprehensive statistics table with weighted error.
+"""
+function generate_statistics_table(results, problem_sizes, solvers, output_dir, experiment_dir::String)
+    println("Generating statistics table with weighted error...")
     
     # Sort problem sizes consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
     sorted_solvers = sort_solvers(solvers)
+    
+    # Compute weighted error metrics
+    weighted_error_data = compute_all_weighted_errors(experiment_dir, sorted_sizes, sorted_solvers)
     
     # Collect all statistics
     stats_data = []
@@ -1237,6 +1440,9 @@ function generate_statistics_table(results, problem_sizes, solvers, output_dir)
                 # Count incorrect final predictions (final error > 0)
                 incorrect_final = count(e -> e > 0, final_errors)
                 
+                # Get weighted error
+                weighted_error = get(get(weighted_error_data, size, Dict()), solver, NaN)
+                
                 # Compute statistics
                 stats = Dict(
                     "Problem Size" => format_problem_size(size),
@@ -1247,7 +1453,8 @@ function generate_statistics_table(results, problem_sizes, solvers, output_dir)
                     "Incorrect Final (%)" => 100.0 * incorrect_final / length(final_errors),
                     "Avg Change Magnitude" => mean(avg_change_mags),
                     "Std Change Magnitude" => std(avg_change_mags),
-                    "Policy Time (s)" => get(solver_results, "policy_solve_time", 0.0)
+                    "Policy Time (s)" => get(solver_results, "policy_solve_time", 0.0),
+                    "Avg Weighted Error" => weighted_error
                 )
                 
                 push!(stats_data, stats)
@@ -1266,6 +1473,8 @@ function generate_statistics_table(results, problem_sizes, solvers, output_dir)
     
     # Create summary plots
     create_statistics_plots(df, sorted_sizes, solvers, output_dir)
+    
+    return weighted_error_data
 end
 
 """
@@ -1400,6 +1609,7 @@ function analyze_results(experiment_dir::String; output_dir::Union{String, Nothi
     println("  Solvers: $(join(sorted_solvers, ", "))")
     println("  Data structure: $(haskey(config, "save_frequency") ? "Incremental" : "Legacy")")
     println("  Output format: SVG and PDF (high quality)")
+    println("  Enhanced features: Weighted error analysis")
     println()
     
     # 1. Generate reward comparison table and plots
@@ -1408,11 +1618,11 @@ function analyze_results(experiment_dir::String; output_dir::Union{String, Nothi
     # 2. Generate histogram distributions
     generate_reward_histograms(all_results, problem_sizes, solvers, output_dir)
     
-    # 3. Generate comparison statistics table
-    generate_statistics_table(all_results, problem_sizes, solvers, output_dir)
+    # 3. Generate comparison statistics table (includes weighted error computation)
+    weighted_error_data = generate_statistics_table(all_results, problem_sizes, solvers, output_dir, experiment_dir)
     
-    # 4. Generate combined visualizations
-    generate_combined_plots(all_results, problem_sizes, solvers, output_dir)
+    # 4. Generate combined visualizations (now includes weighted error plot)
+    generate_combined_plots(all_results, problem_sizes, solvers, output_dir, weighted_error_data)
     
     # 5. Generate memory usage report if available
     generate_memory_report(experiment_dir, output_dir)
@@ -1430,6 +1640,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
     if length(ARGS) < 1
         println("Usage: julia analyze_paper_results.jl <experiment_directory> [output_directory]")
         println("       Supports both legacy and incremental data structures")
+        println("       Now includes weighted error analysis!")
         exit(1)
     end
     

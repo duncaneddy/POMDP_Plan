@@ -20,7 +20,8 @@ using Random
 
 # Configuration constants
 const OUTPUT_DIR = "pareto_analysis_results"
-const DEFAULT_REFERENCE_PROBLEM = "reference_problems/std_div_3/qmdp_base_l_2_u_26_n_1000.json"
+# const DEFAULT_REFERENCE_PROBLEM = "reference_problems/std_div_3/qmdp_base_l_2_u_26_n_1000.json"
+const DEFAULT_REFERENCE_PROBLEM = "reference_problems/std_div_3/qmdp_base_l_2_u_52_n_1000.json"
 const DEFAULT_SOLVER = "QMDP"
 const DEFAULT_NUM_SIMULATIONS = 100
 
@@ -30,8 +31,10 @@ const DEFAULT_LAMBDA_E = 2.0
 const DEFAULT_LAMBDA_F = 1000.0
 
 # Parameter sweep configurations
-const DEFAULT_LAMBDA_C_SWEEP = [0.1, 0.2, 0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
-const DEFAULT_LAMBDA_E_SWEEP = [0.1, 0.2, 0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
+# const DEFAULT_LAMBDA_C_SWEEP = [0.1, 0.2, 0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
+# const DEFAULT_LAMBDA_E_SWEEP = [0.1, 0.2, 0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
+const DEFAULT_LAMBDA_C_SWEEP = [0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
+const DEFAULT_LAMBDA_E_SWEEP = [0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0]
 const DEFAULT_STD_DIVISOR = 3.0
 const DEFAULT_DISCOUNT = 0.98
 

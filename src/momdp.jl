@@ -7,6 +7,9 @@ mutable struct PlanningProblem <: MOMDP{Tuple{Int, Int}, Int, Int, Int}
     lambda_c::Real
     lambda_e::Real
     lambda_f::Real
+    a_cost_small::Real
+    a_cost_large::Real
+    a_cost_small_prob::Real
 end
 
 # Define these relationships for the MOMDP to improve performance
@@ -79,8 +82,25 @@ function MOMDPs.transition_x(problem::PlanningProblem, state::Tuple{Tuple{Int, I
 end
 
 function MOMDPs.transition_y(problem::PlanningProblem, state::Tuple{Tuple{Int, Int}, Int}, action::Int, xprime::Tuple{Int, Int})
-    # The true end time Tt is independent of the action, so we return the same state
-    return Deterministic(state[2])
+    # If there is a new announce time, shift back the true end time (either by either a small or large amount)
+    # This models the effect of announcing a new time on the true end time
+    t, Ta, Tt = state[1][1], state[1][2], state[2]
+
+    new_Ta = action
+    if new_Ta != Ta
+        possible_Tts = Int[]
+        probabilities = Float64[]
+        push!(possible_Tts, min(Tt + problem.a_cost_small, problem.max_end_time))
+        push!(probabilities, problem.a_cost_small_prob)
+        push!(possible_Tts, min(Tt + problem.a_cost_large, problem.max_end_time))
+        push!(probabilities, 1.0 - problem.a_cost_small_prob)
+        total_p = sum(probabilities)
+        probabilities ./= total_p
+        return SparseCat(possible_Tts, probabilities)
+    else
+        new_Tt = Tt
+        return SparseCat([new_Tt], [1.0])
+    end
 end
 
 ## Define additional helpers for the MOMDP
@@ -144,7 +164,10 @@ function define_momdp(
     std_divisor::Float64=3.0,
     lambda_c::Real = 3.0,
     lambda_e::Real = 2.0,
-    lambda_f::Real = 1000.0
+    lambda_f::Real = 1000.0,
+    a_cost_small::Real = 1.0,
+    a_cost_large::Real = 3.0,
+    a_cost_small_prob::Real = 0.85
 )
     return PlanningProblem(
         min_end_time,
@@ -154,6 +177,9 @@ function define_momdp(
         std_divisor,
         lambda_c,
         lambda_e,
-        lambda_f
+        lambda_f,
+        a_cost_small,
+        a_cost_large,
+        a_cost_small_prob
     )
 end

@@ -6,7 +6,7 @@ end
 # Original w/ simplified reward function
 
 function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false, std_divisor::Float64=3.0, 
-                      lambda_c::Real = 3.0, lambda_e::Real = 2.0, lambda_f::Real = 1000.0)
+                      lambda_c::Real = 3.0, lambda_e::Real = 2.0, lambda_f::Real = 1000.0, a_cost_small::Real = 1.0, a_cost_large::Real = 3.0, a_cost_small_prob::Real = 0.85)
     
     # Constants for rewards
     IMPOSSIBLE_TIME_REWARD = -1000
@@ -42,9 +42,35 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
             # Note that the action can be any number in min_end_time:max_end_time 
             # The paper restricts this to only the previous observed time
             new_Ta = a.announced_time
-            sp = (t, new_Ta, Tt)
 
-            return Deterministic(sp)
+            # If there is a new announce time, shift back the true end time (either by either a small or large amount)
+            # This models the effect of announcing a new time on the true end time
+            if new_Ta != Ta
+                # shift_amount = rand() < a_cost_small_prob ? a_cost_small : a_cost_large
+                # new_Tt = min(Tt + shift_amount, max_end_time)
+                # sp = (t, new_Ta, new_Tt)
+                # return Deterministic(sp)
+
+                # Construct SparseCat distribution for the two possible outcomes
+                possible_Tts = Int[]
+                probabilities = Float64[]
+                push!(possible_Tts, min(Tt + a_cost_small, max_end_time))
+                push!(probabilities, a_cost_small_prob)
+                push!(possible_Tts, min(Tt + a_cost_large, max_end_time))
+                push!(probabilities, 1.0 - a_cost_small_prob)
+                total_p = sum(probabilities)
+                probabilities ./= total_p
+
+                possible_states = [(t, new_Ta, new_Tt) for new_Tt in possible_Tts]
+
+                return SparseCat(possible_states, probabilities)
+
+            else
+                new_Tt = Tt
+                sp = (t, new_Ta, new_Tt)
+                return SparseCat([sp], [1.0])
+                # return Deterministic(sp)
+            end
         end,
 
         observation = function(a, sp)

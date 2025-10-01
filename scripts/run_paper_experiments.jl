@@ -11,7 +11,8 @@ using POMDPPlanning
 
 # Configuration
 SOLVERS = ["OBSERVEDTIME", "MOSTLIKELY", "QMDP", "MOMDP_SARSOP"]
-POLICY_TIMEOUT = 60*60*6  # 6 hours for policy computation
+# POLICY_TIMEOUT = 60*60*6  # 6 hours for policy computation
+POLICY_TIMEOUT = 60*5  # Policy computation timeout
 NUM_SIMULATIONS = 1000  # Number of simulations per solver/problem
 NUM_DETAILED_PLOTS = 25  # Number of runs to save detailed belief plots for
 SAVE_FREQUENCY = 50     # Save results every N simulations to prevent memory growth
@@ -42,11 +43,11 @@ function load_problem_configs(reference_dir::String="reference_problems")
             "min_end_time" => 2,
             "max_end_time" => 39
         ),
-        "xlarge" => Dict(
-            "filename" => "std_div_3/qmdp_base_l_2_u_52_n_1000.json", 
-            "min_end_time" => 2,
-            "max_end_time" => 52
-        )
+        # "xlarge" => Dict(
+        #     "filename" => "std_div_3/qmdp_base_l_2_u_52_n_1000.json", 
+        #     "min_end_time" => 2,
+        #     "max_end_time" => 52
+        # )
     )
     
     for (size_name, size_def) in problem_definitions

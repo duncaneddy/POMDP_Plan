@@ -321,13 +321,12 @@ function plot_error_evolution(run_details; title_prefix="")
     return p
 end
 
-function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, max_end_time; title_prefix="", is_momdp=false)
+function plot_2d_belief_evolution(belief_history, min_end_time, max_end_time; title_prefix="", is_momdp=false)
     """
     Creates a 2D heatmap showing the evolution of belief probabilities over time.
     
     Args:
         belief_history: Vector of belief states from simulation
-        true_end_time: The actual true end time for this simulation
         min_end_time: Minimum possible end time in the problem
         max_end_time: Maximum possible end time in the problem
         title_prefix: Optional prefix for the plot title
@@ -388,14 +387,6 @@ function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, m
         legend = :outertopright  # Place legend outside the plot on the top right
     )
     
-    # Add a horizontal line for the actual true end time
-    hline!([true_end_time], 
-           label = "True End Time", 
-           color = :red, 
-           linewidth = 3, 
-           linestyle = :dash,
-           legend = :topleft)
-
     # Ensure proper tick spacing for readability
     plot!(
         xticks = (0:2:maximum(timestep_labels), 0:2:maximum(timestep_labels)),
@@ -411,15 +402,16 @@ function plot_2d_belief_evolution_with_actions(belief_history, run_details, true
     """
     
     # Create the base 2D belief evolution plot
-    p = plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, max_end_time, title_prefix=title_prefix, is_momdp=is_momdp)
+    p = plot_2d_belief_evolution(belief_history, min_end_time, max_end_time, title_prefix=title_prefix, is_momdp=is_momdp)
     
     if p === nothing
         return nothing
     end
-    
+
     # Extract timesteps and announced times from run details
     timesteps = [step["timestep"] for step in run_details]
     announced_times = [step["action"] for step in run_details]
+    end_times = [step["Tt"] for step in run_details]
     
     # Overlay the announced time trajectory
     plot!(p,
@@ -433,13 +425,25 @@ function plot_2d_belief_evolution_with_actions(belief_history, run_details, true
         markerstrokecolor = :black,
         markerstrokewidth = 1
     )
+
+    # Overlay the true end as red triangle slightly to right of announced time
+    plot!(p,
+        timesteps[2:end] .+ 0.25,  # Slightly offset in x for visibility
+        end_times[2:end] .+ 0.25,  # Slightly offset in y for visibility
+        label = "True End Time",
+        color = :red,
+        marker = :utriangle,
+        markersize = 5,
+        markerstrokecolor = :red,
+        markerstrokewidth = 1,
+    )
     
     # Also overlay observations if available
     if haskey(run_details[1], "To")
         observations = [step["To"] for step in run_details]
         scatter!(p,
-            timesteps,
-            observations,
+            timesteps .+ 0.25,  # Slightly offset in x for visibility
+            observations .- 0.25,  # Slightly offset in y for visibility
             label = "Observations",
             color = :yellow,
             marker = :diamond,
@@ -550,7 +554,6 @@ function create_debug_plots(pomdp, run_details, min_end_time, max_end_time, outp
     # Plot 2D belief evolution
     p_belief_2d = plot_2d_belief_evolution(
         belief_history, 
-        true_end_time, 
         min_end_time, 
         max_end_time,
         is_momdp=is_momdp
