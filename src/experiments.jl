@@ -10,6 +10,7 @@ function run_experiment(
     discount_factor::Float64=0.99,
     seed::Union{Int, Nothing}=nothing,
     verbose::Bool=false,
+    debug::Bool=false,
     std_divisor::Float64=3.0
 )
     # Set random seed if provided or generate one
@@ -101,36 +102,23 @@ function run_experiment(
             
             # Reset RNG to same state for each policy
             Random.seed!(sim_num)
+
+            # Get the appropriate POMDP or MOMDP
+            if uppercase(solver_type) == "MOMDP_SARSOP"
+                mdp = momdp
+            else
+                mdp = pomdp
+            end
             
             # Run simulation
-            sim_trajectory = []
-            reward_accumulator = 0.0
-            
-            for (b, s, a, o, r) in stepthrough(pomdp, policy, DiscreteUpdater(pomdp), "b,s,a,o,r"; max_steps=1_000_000)
-                t, Ta, Tt = s
-                
-                # Update accumulated reward
-                reward_accumulator += r
-                
-                # Record step data
-                step_data = Dict(
-                    "timestep" => t,
-                    "announced_time" => Ta,
-                    "true_end_time" => Tt,
-                    "action" => a.announced_time,
-                    "observation" => o[3],  # Extract the observed time
-                    "reward" => r,
-                    "accumulated_reward" => reward_accumulator,
-                    "belief_estimate" => highest_belief_state(b)[3]  # Get highest probability state's Tt
-                )
-                
-                push!(sim_trajectory, step_data)
-                
-                # Check if simulation is complete
-                if t == Tt
-                    break
-                end
-            end
+            sim_trajectory = simulate_single(
+                mdp,
+                policy,
+                initial_announce=initial_Ta,
+                verbose=verbose,
+                debug=debug
+            )
+
             
             # Add to results
             if !haskey(all_results, solver_type)
@@ -141,14 +129,14 @@ function run_experiment(
     end
     
     # Save all simulation results
-    results_path = joinpath(experiment_dir, "experiment_results.json")
-    open(results_path, "w") do f
-        JSON.print(f, all_results, 4)
-    end
-    
-    if verbose
-        println("Experiment results saved to: $results_path")
-    end
+    # results_path = joinpath(experiment_dir, "experiment_results.json")
+    # open(results_path, "w") do f
+    #     JSON.print(f, all_results, 4)
+    # end
+    # 
+    # if verbose
+    #     println("Experiment results saved to: $results_path")
+    # end
     
     # Generate plots for each simulation
     for sim_num in 1:num_simulations
@@ -214,7 +202,7 @@ function generate_experiment_plots(results, output_dir, true_end_time, min_end_t
     for (solver, trajectory) in results
         for step in trajectory
             t = step["timestep"]
-            all_observations[t] = step["observation"]
+            all_observations[t] = step["To"]
         end
     end
     
@@ -277,7 +265,7 @@ function generate_experiment_plots(results, output_dir, true_end_time, min_end_t
         
         # Extract timesteps and accumulated rewards
         timesteps = [step["timestep"] for step in trajectory]
-        accumulated_rewards = [step["accumulated_reward"] for step in trajectory]
+        accumulated_rewards = [step["cumulative_reward"] for step in trajectory]
         
         # Plot the accumulated reward trajectory
         plot!(
