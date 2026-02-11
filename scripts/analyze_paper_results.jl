@@ -588,31 +588,52 @@ end
 Create LaTeX formatted statistics table.
 """
 function create_latex_statistics_table(df::DataFrame, filepath::String)
+    has_tt_increase = "Avg Tt Increase" in names(df)
+
     open(filepath, "w") do f
         println(f, "\\begin{table}[htbp]")
         println(f, "\\centering")
         println(f, "\\caption{Performance Statistics by Solver and Problem Size}")
-        println(f, "\\begin{tabular}{llrrrrrr}")
+
+        if has_tt_increase
+            println(f, "\\begin{tabular}{llrrrrrrr}")
+            println(f, "\\hline")
+            println(f, "Size & Solver & \\multicolumn{2}{c}{Ann. Changes} & Final Err & Incorrect & \\multicolumn{2}{c}{Change Mag.} & Tt Inc. \\\\")
+            println(f, " & & Mean & Std & Mean & (\\%) & Mean & Std & Mean \\\\")
+        else
+            println(f, "\\begin{tabular}{llrrrrrr}")
+            println(f, "\\hline")
+            println(f, "Size & Solver & \\multicolumn{2}{c}{Announcement Changes} & Final Error & Incorrect & \\multicolumn{2}{c}{Change Magnitude} \\\\")
+            println(f, " & & Mean & Std & Mean & (\\%) & Mean & Std \\\\")
+        end
         println(f, "\\hline")
-        println(f, "Size & Solver & \\multicolumn{2}{c}{Announcement Changes} & Final Error & Incorrect & \\multicolumn{2}{c}{Change Magnitude} \\\\")
-        println(f, " & & Mean & Std & Mean & (\\%) & Mean & Std \\\\")
-        println(f, "\\hline")
-        
+
         for row in eachrow(df)
-            println(f, "$(row["Problem Size"]) & $(row["Solver"]) & " *
+            line = "$(row["Problem Size"]) & $(row["Solver"]) & " *
                       @sprintf("%.2f", row["Avg Announcement Changes"]) * " & " *
                       @sprintf("%.2f", row["Std Announcement Changes"]) * " & " *
                       @sprintf("%.2f", row["Avg Final Error"]) * " & " *
                       @sprintf("%.1f", row["Incorrect Final (%)"]) * " & " *
                       @sprintf("%.2f", row["Avg Change Magnitude"]) * " & " *
-                      @sprintf("%.2f", row["Std Change Magnitude"]) * " \\\\")
+                      @sprintf("%.2f", row["Std Change Magnitude"])
+
+            if has_tt_increase
+                tt_val = get(row, "Avg Tt Increase", missing)
+                if tt_val !== missing
+                    line *= " & " * @sprintf("%.2f", tt_val)
+                else
+                    line *= " & --"
+                end
+            end
+
+            println(f, line * " \\\\")
         end
-        
+
         println(f, "\\hline")
         println(f, "\\end{tabular}")
         println(f, "\\end{table}")
     end
-    
+
     println("LaTeX statistics table saved to: $filepath")
 end
 
@@ -943,7 +964,8 @@ function reconstruct_from_detailed_data(experiment_dir::String)
                 "num_changes" => Int[],
                 "avg_change_magnitudes" => Float64[],
                 "std_change_magnitudes" => Float64[],
-                "final_undershoot" => Bool[]
+                "final_undershoot" => Bool[],
+                "tt_increases" => Float64[]
             )
             
             for batch_file in consolidated_files
@@ -1211,6 +1233,119 @@ function generate_reward_histograms(results, problem_sizes, solvers, output_dir)
 end
 
 """
+Generate Tt increase analysis: histograms and grouped bar charts.
+"""
+function generate_tt_increase_analysis(results, problem_sizes, solvers, output_dir)
+    println("Generating Tt increase analysis...")
+
+    tt_dir = joinpath(output_dir, "tt_increase_plots")
+    mkpath(tt_dir)
+
+    sorted_sizes = sort_problem_sizes(problem_sizes)
+    sorted_solvers = sort_solvers(solvers)
+
+    # Per problem size: overlaid histograms of tt_increases by solver
+    for size in sorted_sizes
+        p = Plots.plot(
+            xlabel = "Tt Increase",
+            ylabel = "Frequency",
+            size = (1000, 600);
+            PLOT_SETTINGS...
+        )
+
+        plot_created = false
+        for solver in sorted_solvers
+            if haskey(results[size], solver)
+                solver_data = results[size][solver]
+                tt_increases = get(solver_data, "tt_increases", nothing)
+                if tt_increases !== nothing && length(tt_increases) > 1
+                    Plots.histogram!(
+                        p,
+                        tt_increases,
+                        bins = min(20, length(tt_increases)),
+                        alpha = 0.5,
+                        label = format_solver_name(solver),
+                        color = get_solver_color(solver)
+                    )
+                    plot_created = true
+                end
+            end
+        end
+
+        if plot_created
+            Plots.savefig(p, joinpath(tt_dir, "tt_increase_hist_$(size).pdf"))
+        end
+    end
+
+    # Combined grouped bar chart of mean Tt increase across problem sizes
+    gr()
+
+    # Collect data
+    unique_solvers_with_data = String[]
+    for solver in sorted_solvers
+        has_data = false
+        for size in sorted_sizes
+            if haskey(results, size) && haskey(results[size], solver) &&
+               haskey(results[size][solver], "tt_increases")
+                has_data = true
+                break
+            end
+        end
+        if has_data
+            push!(unique_solvers_with_data, solver)
+        end
+    end
+
+    if isempty(unique_solvers_with_data)
+        println("  No Tt increase data found, skipping grouped bar chart")
+        return
+    end
+
+    mean_matrix = zeros(length(unique_solvers_with_data), length(sorted_sizes))
+    stderr_matrix = zeros(length(unique_solvers_with_data), length(sorted_sizes))
+
+    for (i, solver) in enumerate(unique_solvers_with_data)
+        for (j, size) in enumerate(sorted_sizes)
+            if haskey(results, size) && haskey(results[size], solver)
+                tt_increases = get(results[size][solver], "tt_increases", nothing)
+                if tt_increases !== nothing && !isempty(tt_increases)
+                    mean_matrix[i, j] = mean(tt_increases)
+                    stderr_matrix[i, j] = length(tt_increases) > 1 ?
+                        std(tt_increases) / sqrt(length(tt_increases)) : 0.0
+                end
+            end
+        end
+    end
+
+    positions, two_line_labels = create_two_line_labels(sorted_sizes)
+    solver_colors = [get_solver_color(s) for s in unique_solvers_with_data]
+
+    p_combined = groupedbar(
+        mean_matrix',
+        bar_position = :dodge,
+        bar_width = 0.7,
+        yerr = stderr_matrix',
+        labels = reshape(unique_solvers_with_data, 1, :),
+        xticks = (positions, two_line_labels),
+        xlabel = "Problem Size",
+        ylabel = "Mean Tt Increase",
+        size = (1200, 700),
+        legend = :topleft,
+        color = reshape(solver_colors, 1, :);
+        PLOT_SETTINGS...
+    )
+
+    # Add error bar legend entry
+    plot!(p_combined, [NaN, NaN], [NaN, NaN],
+          label="±1 Std. Error", color=:black, linewidth=2,
+          linestyle=:solid, marker=:none)
+
+    Plots.savefig(p_combined, joinpath(tt_dir, "tt_increase_comparison.pdf"))
+
+    println("  Tt increase plots saved to: $tt_dir")
+end
+
+"""
 Generate comprehensive statistics table
 """
 function generate_statistics_table(results, problem_sizes, solvers, output_dir)
@@ -1249,6 +1384,13 @@ function generate_statistics_table(results, problem_sizes, solvers, output_dir)
                     "Std Change Magnitude" => std(avg_change_mags),
                     "Policy Time (s)" => get(solver_results, "policy_solve_time", 0.0)
                 )
+
+                # Add Tt increase stats if available
+                if haskey(solver_results, "tt_increases")
+                    tt_inc = solver_results["tt_increases"]
+                    stats["Avg Tt Increase"] = mean(tt_inc)
+                    stats["Std Tt Increase"] = std(tt_inc)
+                end
                 
                 push!(stats_data, stats)
             end
@@ -1413,11 +1555,26 @@ function analyze_results(experiment_dir::String; output_dir::Union{String, Nothi
     
     # 4. Generate combined visualizations
     generate_combined_plots(all_results, problem_sizes, solvers, output_dir)
-    
-    # 5. Generate memory usage report if available
+
+    # 5. Generate Tt increase analysis if data is available
+    has_tt_data = false
+    for (size, size_results) in all_results
+        for (solver, solver_results) in size_results
+            if haskey(solver_results, "tt_increases")
+                has_tt_data = true
+                break
+            end
+        end
+        has_tt_data && break
+    end
+    if has_tt_data
+        generate_tt_increase_analysis(all_results, problem_sizes, solvers, output_dir)
+    end
+
+    # 6. Generate memory usage report if available
     generate_memory_report(experiment_dir, output_dir)
     
-    # 6. Generate belief evolution plots from experiment JSON data (new feature)
+    # 7. Generate belief evolution plots from experiment JSON data
     if REGEN_BELIEF_HISTORIES == true
         generate_belief_evolution_plots_from_json(experiment_dir, output_dir)
     end

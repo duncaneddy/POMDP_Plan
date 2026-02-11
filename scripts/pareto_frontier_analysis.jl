@@ -20,13 +20,16 @@ using Random
 
 # Configuration constants
 const OUTPUT_DIR = "pareto_analysis_results"
-const DEFAULT_REFERENCE_PROBLEM = "reference_problems/std_div_3/qmdp_base_l_2_u_26_n_1000.json"
 const DEFAULT_SOLVER = "QMDP"
 const DEFAULT_NUM_SIMULATIONS = 100
+const DEFAULT_MIN_END_TIME = 2
+const DEFAULT_MAX_END_TIME = 26
+const DEFAULT_NUM_CONDITIONS = 100
+const DEFAULT_NUM_REPETITIONS = 10
 
 # Default reward parameters (should match project defaults)
 const DEFAULT_LAMBDA_C = 3.0
-const DEFAULT_LAMBDA_E = 2.0
+const DEFAULT_LAMBDA_E = 5.0
 const DEFAULT_LAMBDA_F = 1000.0
 
 # Parameter sweep configurations
@@ -63,16 +66,28 @@ function parse_commandline()
     )
     
     @add_arg_table! s begin
-        "--reference-data", "-r"
-            help = "Path to reference simulation data JSON file"
-            arg_type = String
-            default = DEFAULT_REFERENCE_PROBLEM
+        "--min-end-time"
+            help = "Minimum end time for the problem"
+            arg_type = Int
+            default = DEFAULT_MIN_END_TIME
+        "--max-end-time"
+            help = "Maximum end time for the problem"
+            arg_type = Int
+            default = DEFAULT_MAX_END_TIME
+        "--num-conditions"
+            help = "Number of initial conditions to generate"
+            arg_type = Int
+            default = DEFAULT_NUM_CONDITIONS
+        "--num-repetitions"
+            help = "Number of repetitions per initial condition"
+            arg_type = Int
+            default = DEFAULT_NUM_REPETITIONS
         "--solver", "-s"
             help = "Solver to use for analysis"
             arg_type = String
             default = DEFAULT_SOLVER
         "--num-simulations", "-n"
-            help = "Number of simulations to run for each parameter combination"
+            help = "Number of simulations to run for each parameter combination (overrides conditions × repetitions if set)"
             arg_type = Int
             default = DEFAULT_NUM_SIMULATIONS
         "--output-dir", "-o"
@@ -164,45 +179,10 @@ function aggregate_error_metrics(metrics_list::Vector{ErrorMetrics})
     )
 end
 
-function extract_problem_parameters(reference_data_path::String)
-    # Try to parse from filename first (more reliable)
-    if contains(reference_data_path, "l_2_u_13")
-        return 2, 13
-    elseif contains(reference_data_path, "l_2_u_26")
-        return 2, 26
-    elseif contains(reference_data_path, "l_2_u_39")
-        return 2, 39
-    elseif contains(reference_data_path, "l_2_u_52")
-        return 2, 52
-    end
-    
-    # Fallback: try to infer from data content
-    try
-        reference_data = JSON.parsefile(reference_data_path)
-        simulation_data = reference_data["simulation_data"]
-        
-        if !isempty(simulation_data)
-            # Extract from initial states
-            initial_states = [sim["initial_state"] for sim in simulation_data[1:min(10, length(simulation_data))]]
-            true_end_times = [state[3] for state in initial_states if length(state) >= 3]
-            
-            if !isempty(true_end_times)
-                min_tt = minimum(true_end_times)
-                max_tt = maximum(true_end_times)
-                return min_tt, max_tt
-            end
-        end
-    catch e
-        println("Warning: Could not extract parameters from data: $e")
-    end
-    
-    # Final fallback
-    println("Warning: Using default problem parameters (10, 20)")
-    return 10, 20
-end
-
 function evaluate_baseline_solvers(
-    reference_data_path::String,
+    min_end_time::Int,
+    max_end_time::Int,
+    initial_conditions::Vector,
     baseline_solvers::Vector{String},
     num_simulations::Int,
     discount::Float64,
@@ -210,19 +190,12 @@ function evaluate_baseline_solvers(
     verbose::Bool
 )
     baseline_results = []
-    
-    # Load reference data
-    reference_data = JSON.parsefile(reference_data_path)
-    simulation_data = reference_data["simulation_data"]
-    
-    # Extract problem parameters
-    min_end_time, max_end_time = extract_problem_parameters(reference_data_path)
-    
+
     for solver in baseline_solvers
         if verbose
             println("Evaluating baseline solver: $solver")
         end
-        
+
         # Create POMDP with default parameters for baseline evaluation
         pomdp = POMDPPlanning.define_pomdp(
             min_end_time,
@@ -233,51 +206,53 @@ function evaluate_baseline_solvers(
             lambda_e=DEFAULT_LAMBDA_E,
             lambda_f=DEFAULT_LAMBDA_F
         )
-        
+
         # Generate policy
         policy_data = POMDPPlanning.get_policy(pomdp, solver, tempdir(), verbose=false)
         policy = policy_data["policy"]
-        
-        # Run simulations
-        actual_num_sims = min(num_simulations, length(simulation_data))
-        replay_data = simulation_data[1:actual_num_sims]
-        
+
+        # Run simulations with initial conditions
+        actual_num_sims = min(num_simulations, length(initial_conditions))
+
         stats = POMDPPlanning.simulate_many(
             pomdp,
             policy,
             actual_num_sims,
-            replay_data=replay_data,
+            initial_conditions=initial_conditions[1:actual_num_sims],
             collect_beliefs=false,
             verbose=false
         )
-        
+
         # Compute error metrics
         error_metrics_list = ErrorMetrics[]
         for run_details in stats["run_details"]
             metrics = compute_error_metrics(run_details)
             push!(error_metrics_list, metrics)
         end
-        
+
         aggregated_metrics = aggregate_error_metrics(error_metrics_list)
         avg_changes = mean(stats["num_changes"])
-        
+
         baseline_result = Dict(
             "solver" => solver,
             "avg_changes" => avg_changes,
             "avg_change_magnitude" => mean(stats["avg_change_magnitudes"]),
             "error_metrics" => aggregated_metrics,
             "total_reward" => mean(stats["rewards"]),
+            "avg_tt_increase" => mean(stats["tt_increases"]),
             "is_baseline" => true
         )
-        
+
         push!(baseline_results, baseline_result)
     end
-    
+
     return baseline_results
 end
 
 function evaluate_reward_parameters(
-    reference_data_path::String,
+    min_end_time::Int,
+    max_end_time::Int,
+    initial_conditions::Vector,
     solver::String,
     lambda_c::Float64,
     lambda_e::Float64,
@@ -290,14 +265,7 @@ function evaluate_reward_parameters(
     if verbose
         println("Evaluating λc=$(lambda_c), λe=$(lambda_e), λf=$(lambda_f)")
     end
-    
-    # Load reference data
-    reference_data = JSON.parsefile(reference_data_path)
-    simulation_data = reference_data["simulation_data"]
-    
-    # Extract problem parameters
-    min_end_time, max_end_time = extract_problem_parameters(reference_data_path)
-    
+
     # Create POMDP with custom reward parameters
     pomdp = POMDPPlanning.define_pomdp(
         min_end_time,
@@ -308,39 +276,37 @@ function evaluate_reward_parameters(
         lambda_e=lambda_e,
         lambda_f=lambda_f
     )
-    
+
     # Generate policy for this parameter configuration
     policy_data = POMDPPlanning.get_policy(pomdp, solver, tempdir(), verbose=false)
     policy = policy_data["policy"]
-    
-    # Run simulations with subset of reference data
-    actual_num_sims = min(num_simulations, length(simulation_data))
-    replay_data = simulation_data[1:actual_num_sims]
-    
-    # Evaluate policy
+
+    # Run simulations with initial conditions
+    actual_num_sims = min(num_simulations, length(initial_conditions))
+
     stats = POMDPPlanning.simulate_many(
         pomdp,
         policy,
         actual_num_sims,
-        replay_data=replay_data,
+        initial_conditions=initial_conditions[1:actual_num_sims],
         collect_beliefs=false,
         verbose=false
     )
-    
+
     # Compute error metrics for each simulation
     error_metrics_list = ErrorMetrics[]
     for run_details in stats["run_details"]
         metrics = compute_error_metrics(run_details)
         push!(error_metrics_list, metrics)
     end
-    
+
     # Aggregate metrics
     aggregated_metrics = aggregate_error_metrics(error_metrics_list)
-    
+
     # Calculate announcement changes and magnitudes
     avg_changes = mean(stats["num_changes"])
     avg_change_magnitude = mean(stats["avg_change_magnitudes"])
-    
+
     return Dict(
         "lambda_c" => lambda_c,
         "lambda_e" => lambda_e,
@@ -349,12 +315,15 @@ function evaluate_reward_parameters(
         "avg_change_magnitude" => avg_change_magnitude,
         "error_metrics" => aggregated_metrics,
         "total_reward" => mean(stats["rewards"]),
+        "avg_tt_increase" => mean(stats["tt_increases"]),
         "policy_solve_time" => policy_data["policy_solve_time"]
     )
 end
 
 function run_pareto_sweep(
-    reference_data_path::String,
+    min_end_time::Int,
+    max_end_time::Int,
+    initial_conditions::Vector,
     solver::String,
     lambda_c_values::Vector{Float64},
     lambda_e_values::Vector{Float64},
@@ -366,52 +335,57 @@ function run_pareto_sweep(
     verbose::Bool
 )
     mkpath(output_dir)
-    
+
     all_results = []
-    
+
     println("Starting Pareto frontier analysis...")
+    println("Problem: min_end_time=$min_end_time, max_end_time=$max_end_time")
+    println("Initial conditions: $(length(initial_conditions))")
     println("Parameter sweeps:")
-    
+
     # Sweep 1: Vary lambda_c, keep lambda_e = 2.0 (middle value)
     base_lambda_e = 2.0
     println("  1. lambda_c sweep (λe fixed at $(base_lambda_e))")
     for lambda_c in lambda_c_values
         result = evaluate_reward_parameters(
-            reference_data_path, solver, lambda_c, base_lambda_e, lambda_f,
+            min_end_time, max_end_time, initial_conditions,
+            solver, lambda_c, base_lambda_e, lambda_f,
             num_simulations, discount, std_divisor, verbose
         )
         result["sweep_type"] = "lambda_c_sweep"
         push!(all_results, result)
     end
-    
+
     # Sweep 2: Vary lambda_e, keep lambda_c = 3.0 (middle value)
     base_lambda_c = 3.0
     println("  2. lambda_e sweep (λc fixed at $(base_lambda_c))")
     for lambda_e in lambda_e_values
         result = evaluate_reward_parameters(
-            reference_data_path, solver, base_lambda_c, lambda_e, lambda_f,
+            min_end_time, max_end_time, initial_conditions,
+            solver, base_lambda_c, lambda_e, lambda_f,
             num_simulations, discount, std_divisor, verbose
         )
         result["sweep_type"] = "lambda_e_sweep"
         push!(all_results, result)
     end
-    
+
     # Sweep 3: Vary ratio, keep sum constant
-    lambda_sum = 5.0  # lambda_c + lambda_e = constant
+    lambda_sum = 5.0
     ratios = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
     println("  3. Ratio sweep (λc + λe = $(lambda_sum))")
     for ratio in ratios
         lambda_c = ratio * lambda_sum
         lambda_e = (1 - ratio) * lambda_sum
         result = evaluate_reward_parameters(
-            reference_data_path, solver, lambda_c, lambda_e, lambda_f,
+            min_end_time, max_end_time, initial_conditions,
+            solver, lambda_c, lambda_e, lambda_f,
             num_simulations, discount, std_divisor, verbose
         )
         result["sweep_type"] = "ratio_sweep"
         result["lambda_ratio"] = ratio
         push!(all_results, result)
     end
-    
+
     # Sweep 4: Full grid sweep (all combinations)
     println("  4. Grid sweep (all λc × λe combinations)")
     grid_count = 0
@@ -423,34 +397,37 @@ function run_pareto_sweep(
                 println("    Grid point $grid_count/$total_grid_combinations: λc=$lambda_c, λe=$lambda_e")
             end
             result = evaluate_reward_parameters(
-                reference_data_path, solver, lambda_c, lambda_e, lambda_f,
+                min_end_time, max_end_time, initial_conditions,
+                solver, lambda_c, lambda_e, lambda_f,
                 num_simulations, discount, std_divisor, verbose
             )
             result["sweep_type"] = "grid_sweep"
             push!(all_results, result)
         end
     end
-    
+
     # Save all results
     results_path = joinpath(output_dir, "pareto_sweep_results.json")
     open(results_path, "w") do f
         JSON.print(f, all_results, 4)
     end
-    
+
     # Evaluate baseline solvers for comparison
     println("  5. Baseline solver evaluation")
     baseline_results = evaluate_baseline_solvers(
-        reference_data_path,
+        min_end_time,
+        max_end_time,
+        initial_conditions,
         ["OBSERVEDTIME", "MOSTLIKELY"],
         num_simulations,
         discount,
         std_divisor,
         verbose
     )
-    
+
     # Combine all results
     combined_results = vcat(all_results, baseline_results)
-    
+
     println("Results saved to: $results_path")
     return combined_results
 end
@@ -890,17 +867,23 @@ end
 
 function main()
     args = parse_commandline()
-    
+
     # Set random seed
     Random.seed!(args["seed"])
-    
+
     # Parse parameter ranges
     lambda_c_values = parse.(Float64, split(args["lambda-c-range"], ","))
     lambda_e_values = parse.(Float64, split(args["lambda-e-range"], ","))
-    
+
+    min_end_time = args["min-end-time"]
+    max_end_time = args["max-end-time"]
+    num_conditions = args["num-conditions"]
+    num_repetitions = args["num-repetitions"]
+
     println("Pareto Frontier Analysis")
     println("========================")
-    println("Reference data: $(args["reference-data"])")
+    println("Problem: min_end_time=$min_end_time, max_end_time=$max_end_time")
+    println("Initial conditions: $num_conditions, Repetitions: $num_repetitions")
     println("Solver: $(args["solver"])")
     println("Output directory: $(args["output-dir"])")
     println("Number of simulations per parameter: $(args["num-simulations"])")
@@ -908,15 +891,28 @@ function main()
     println("Lambda_e values: $lambda_e_values")
     println("Lambda_f (fixed): $(args["lambda-f"])")
     println()
-    
-    # Check if reference data exists
-    if !isfile(args["reference-data"])
-        error("Reference data file not found: $(args["reference-data"])")
+
+    # Generate initial conditions
+    initial_conditions_raw = POMDPPlanning.generate_initial_conditions(
+        min_end_time, max_end_time, num_conditions,
+        seed=args["seed"])
+
+    # Expand initial conditions: each condition repeated num_repetitions times
+    # Each gets a unique POMDP-format initial state tuple
+    initial_conditions = []
+    for ic in initial_conditions_raw
+        for _ in 1:num_repetitions
+            push!(initial_conditions, (0, ic["Ta"], ic["Tt"]))
+        end
     end
-    
+
+    println("Generated $(length(initial_conditions)) total initial states ($(num_conditions) conditions × $(num_repetitions) reps)")
+
     # Run parameter sweep
     results = run_pareto_sweep(
-        args["reference-data"],
+        min_end_time,
+        max_end_time,
+        initial_conditions,
         args["solver"],
         lambda_c_values,
         lambda_e_values,
@@ -927,10 +923,10 @@ function main()
         args["output-dir"],
         args["verbose"]
     )
-    
+
     # Generate plots
     create_pareto_plots(results, args["output-dir"])
-    
+
     println("\nPareto frontier analysis complete!")
     println("Results and plots saved to: $(args["output-dir"])")
 end

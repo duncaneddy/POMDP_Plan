@@ -1,11 +1,12 @@
-function simulate_single(pomdp, policy; 
+function simulate_single(pomdp, policy;
                         fixed_true_end_time=nothing,
                         initial_announce=nothing,
                         collect_beliefs=true,
                         verbose=false,
                         debug=false,
                         seed=nothing,
-                        replay_data=nothing)
+                        replay_data=nothing,
+                        initial_state=nothing)
     is_momdp = isa(pomdp, PlanningProblem)
     if debug
         println("Running simulation with $(is_momdp ? "MOMDP" : "POMDP") formulation")
@@ -76,7 +77,9 @@ function simulate_single(pomdp, policy;
     end
     
     # Sample initial state
-    if replay_data === nothing
+    if initial_state !== nothing
+        s = initial_state  # Caller constructs correct format (POMDP vs MOMDP)
+    elseif replay_data === nothing
         s = rand(rng, initial_state_distribution)
     else
         if is_momdp
@@ -238,6 +241,11 @@ function simulate_single(pomdp, policy;
         end
     end
 
+    # Calculate Tt increase (how much true completion time grew during simulation)
+    initial_Tt = iteration_details[1]["Tt"]
+    final_Tt = iteration_details[end]["Tt"]
+    tt_increase = final_Tt - initial_Tt
+
     # Calculate the requested metrics
     final_iter = iteration_details[end]
 
@@ -266,9 +274,10 @@ function simulate_single(pomdp, policy;
         "final_undershoot" => final_undershoot,
         "num_changes" => num_changes,
         "announcement_changes" => announcement_changes,
-        "avg_change_magnitude" => avg_change_magnitude, 
+        "avg_change_magnitude" => avg_change_magnitude,
         "std_change_magnitude" => std_change_magnitude,
         "total_reward" => r_sum,
+        "tt_increase" => tt_increase,
         "iterations" => iteration_details,
         "belief_history" => belief_history,
         "min_end_time" => min_end_time,
@@ -287,7 +296,8 @@ function simulate_many(pomdp, policy, num_simulations;
                     seed=nothing,
                     verbose=false,
                     debug=false,
-                    replay_data=nothing)
+                    replay_data=nothing,
+                    initial_conditions=nothing)
 
     # Set random seed if provided
     rand_range = 1:100_000_000
@@ -301,6 +311,11 @@ function simulate_many(pomdp, policy, num_simulations;
         error("If replay_data is provided, it must be a list of length num_simulations")
     end
 
+    # Check that if initial_conditions is provided it is as long as num_simulations
+    if initial_conditions !== nothing && length(initial_conditions) < num_simulations
+        error("If initial_conditions is provided, it must be a list of length num_simulations")
+    end
+
     println("Running $num_simulations simulation(s)")
 
     # Collect metrics across all simulations
@@ -311,6 +326,7 @@ function simulate_many(pomdp, policy, num_simulations;
     num_changes = Int[]
     avg_change_magnitudes = Float64[]
     std_change_magnitudes = Float64[]
+    tt_increases = Float64[]
     all_run_details = []
     simulation_metrics = []
     simulation_data = []
@@ -327,7 +343,7 @@ function simulate_many(pomdp, policy, num_simulations;
         if replay_data !== nothing
             sim_replay = replay_data[i]
 
-            # Check that the end time is not 1 
+            # Check that the end time is not 1
             # If it is skip it
             if sim_replay["initial_state"][3] == 1
                 if verbose
@@ -337,12 +353,18 @@ function simulate_many(pomdp, policy, num_simulations;
             end
         end
 
+        # If initial_conditions is provided, construct initial_state for this run
+        sim_initial_state = nothing
+        if initial_conditions !== nothing
+            sim_initial_state = initial_conditions[i]
+        end
+
         # Sample a random integer seed for this run to make them reproducible
         run_seed = rand(rand_range)
 
         # Run a single simulation and collect metrics
         metrics = simulate_single(
-            pomdp, 
+            pomdp,
             policy,
             fixed_true_end_time=fixed_true_end_time,
             initial_announce=initial_announce,
@@ -350,6 +372,7 @@ function simulate_many(pomdp, policy, num_simulations;
             verbose=verbose,
             debug=debug,
             replay_data=sim_replay,
+            initial_state=sim_initial_state,
             seed=run_seed
         )
 
@@ -368,6 +391,7 @@ function simulate_many(pomdp, policy, num_simulations;
         push!(num_changes, metrics["num_changes"])
         push!(avg_change_magnitudes, metrics["avg_change_magnitude"])
         push!(std_change_magnitudes, metrics["std_change_magnitude"])
+        push!(tt_increases, metrics["tt_increase"])
         push!(all_run_details, metrics["iterations"])
         push!(simulation_metrics, metrics)
         push!(simulation_data, metrics["simulation_data"])
@@ -385,6 +409,7 @@ function simulate_many(pomdp, policy, num_simulations;
         "num_changes" => num_changes,
         "avg_change_magnitudes" => avg_change_magnitudes,
         "std_change_magnitudes" => std_change_magnitudes,
+        "tt_increases" => tt_increases,
         "run_details" => all_run_details,
         "seed" => seed,
         "simulation_metrics" => simulation_metrics,

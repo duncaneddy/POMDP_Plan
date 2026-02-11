@@ -6,14 +6,16 @@ function run_paper_experiments(
     problem_sizes::Dict{String, Dict{String, Any}},
     solvers::Vector{String},
     output_dir::String;
-    num_simulations::Int = 100,
+    num_conditions::Int = 100,
+    num_repetitions::Int = 10,
     num_detailed_plots::Int = 10,  # Number of runs to save detailed belief evolution plots
     policy_timeout::Int = 300,
     discount_factor::Float64 = 0.98,
     seed::Union{Int, Nothing} = nothing,
     verbose::Bool = false,
     sigma_max::Float64 = 1.0,
-    save_frequency::Int = 50  # Save results every N simulations
+    save_frequency::Int = 50,  # Save results every N simulations
+    tt_margin_fraction::Float64 = 0.1
 )
     # Set random seed
     if seed === nothing
@@ -28,9 +30,12 @@ function run_paper_experiments(
     mkpath(experiment_dir)
     
     # Save experiment configuration
+    num_simulations = num_conditions * num_repetitions
     config = Dict(
         "problem_sizes" => problem_sizes,
         "solvers" => solvers,
+        "num_conditions" => num_conditions,
+        "num_repetitions" => num_repetitions,
         "num_simulations" => num_simulations,
         "num_detailed_plots" => num_detailed_plots,
         "policy_timeout" => policy_timeout,
@@ -38,7 +43,8 @@ function run_paper_experiments(
         "seed" => seed,
         "timestamp" => timestamp,
         "sigma_max" => sigma_max,
-        "save_frequency" => save_frequency
+        "save_frequency" => save_frequency,
+        "tt_margin_fraction" => tt_margin_fraction
     )
     
     config_path = joinpath(experiment_dir, "experiment_config.json")
@@ -57,20 +63,19 @@ function run_paper_experiments(
         println("Running experiments for problem size: $size_name")
         println("="^60)
         
-        # Load replay data for this problem size
-        replay_data_path = size_config["replay_data_path"]
-        println("Loading replay data from: $replay_data_path")
-        replay_json = JSON.parsefile(replay_data_path)
-        replay_data = replay_json["simulation_data"]
-        
-        # Ensure we have enough replay data
-        if length(replay_data) < num_simulations
-            error("Not enough replay data. Have $(length(replay_data)), need $num_simulations")
-        end
-        
         # Extract problem parameters
         min_end_time = size_config["min_end_time"]
         max_end_time = size_config["max_end_time"]
+
+        # Generate initial conditions for this problem size
+        initial_conditions = generate_initial_conditions(
+            min_end_time, max_end_time, num_conditions,
+            seed=seed, margin_fraction=tt_margin_fraction)
+        println("Generated $(length(initial_conditions)) initial conditions (Tt range: $(minimum(ic["Tt"] for ic in initial_conditions))-$(maximum(ic["Tt"] for ic in initial_conditions)))")
+
+        # Save initial conditions for reproducibility
+        ic_path = joinpath(experiment_dir, "initial_conditions_$(size_name).json")
+        save_json_safe(initial_conditions, ic_path)
         
         # Create POMDP for this problem size
         pomdp = define_pomdp(
@@ -117,15 +122,15 @@ function run_paper_experiments(
             # Use appropriate POMDP type
             problem = uppercase(solver_type) == "MOMDP_SARSOP" ? momdp : pomdp
             
-            # Run simulations with incremental saving
-            sim_results = simulate_many_incremental(
+            # Run simulations with initial conditions
+            sim_results = simulate_initial_conditions(
                 deepcopy(problem),
                 policies[solver_type],
-                num_simulations,
+                initial_conditions,
+                num_repetitions,
                 experiment_dir,
                 size_name,
                 solver_type,
-                replay_data[1:num_simulations],
                 num_detailed_plots,
                 save_frequency,
                 seed,
@@ -302,6 +307,171 @@ function simulate_many_incremental(
     # save_json_safe(Dict("simulation_data" => all_simulation_data), sim_data_file)
     
     # Return consolidated results
+    return consolidated_metrics
+end
+
+"""
+Generate initial conditions for experiments.
+Samples Tt values from a constrained range within [min_end_time, max_end_time].
+Returns a Vector of Dicts with keys "Tt", "t", "Ta".
+"""
+function generate_initial_conditions(
+    min_end_time::Int,
+    max_end_time::Int,
+    num_conditions::Int;
+    seed::Int=42,
+    margin_fraction::Float64=0.1
+)
+    margin = ceil(Int, margin_fraction * (max_end_time - min_end_time))
+    tt_range = (min_end_time + margin):(max_end_time - margin)
+
+    rng = MersenneTwister(seed)
+    tt_values = [rand(rng, tt_range) for _ in 1:num_conditions]
+
+    return [Dict("Tt" => tt, "t" => 0, "Ta" => min_end_time) for tt in tt_values]
+end
+
+"""
+Run simulations using initial conditions instead of replay data.
+Iterates over initial_conditions × num_repetitions, deriving a deterministic seed per (condition, rep).
+"""
+function simulate_initial_conditions(
+    pomdp,
+    policy,
+    initial_conditions::Vector,
+    num_repetitions::Int,
+    experiment_dir::String,
+    size_name::String,
+    solver_type::String,
+    num_detailed_plots::Int,
+    save_frequency::Int,
+    seed::Int,
+    verbose::Bool
+)
+    is_momdp = isa(pomdp, PlanningProblem)
+
+    # Get min_end_time for default Ta
+    if is_momdp
+        min_end_time = pomdp.min_end_time
+    else
+        state_list = states(pomdp)
+        min_end_time = minimum([s[3] for s in state_list if s[1] == 0])
+    end
+
+    # Create directories for detailed data
+    detailed_dir = joinpath(experiment_dir, "detailed_data", size_name, solver_type)
+    mkpath(detailed_dir)
+
+    # Initialize consolidated metrics
+    consolidated_metrics = Dict{String, Any}(
+        "rewards" => Float64[],
+        "initial_errors" => Int[],
+        "final_errors" => Int[],
+        "num_changes" => Int[],
+        "avg_change_magnitudes" => Float64[],
+        "std_change_magnitudes" => Float64[],
+        "final_undershoot" => Bool[],
+        "tt_increases" => Float64[]
+    )
+
+    batch_detailed = []
+    total_sims = length(initial_conditions) * num_repetitions
+    sim_count = 0
+
+    println("Running $total_sims simulation(s) ($(length(initial_conditions)) conditions × $num_repetitions reps) with incremental saving every $save_frequency simulations")
+    progress = Progress(total_sims, desc="Running simulations...")
+
+    for (ic_idx, ic) in enumerate(initial_conditions)
+        Tt = ic["Tt"]
+        Ta = ic["Ta"]
+
+        for rep in 1:num_repetitions
+            sim_count += 1
+
+            # Derive deterministic seed per (condition, rep)
+            run_seed = hash((seed, ic_idx, rep)) % 100_000_000
+
+            # Construct initial_state in correct format
+            if is_momdp
+                initial_state = ((0, Ta), Tt)
+            else
+                initial_state = (0, Ta, Tt)
+            end
+
+            # Determine if we need detailed data for this simulation
+            collect_detailed = sim_count <= num_detailed_plots
+
+            # Run a single simulation
+            metrics = simulate_single(
+                pomdp,
+                policy,
+                collect_beliefs=collect_detailed,
+                verbose=false,
+                debug=false,
+                initial_state=initial_state,
+                seed=run_seed
+            )
+
+            if metrics === nothing
+                if verbose
+                    println("Simulation $sim_count (ic=$ic_idx, rep=$rep) failed, skipping...")
+                end
+                update!(progress, sim_count)
+                continue
+            end
+
+            # Store consolidated metrics
+            push!(consolidated_metrics["rewards"], metrics["total_reward"])
+            push!(consolidated_metrics["initial_errors"], metrics["initial_error"])
+            push!(consolidated_metrics["final_errors"], metrics["final_error"])
+            push!(consolidated_metrics["num_changes"], metrics["num_changes"])
+            push!(consolidated_metrics["avg_change_magnitudes"], metrics["avg_change_magnitude"])
+            push!(consolidated_metrics["std_change_magnitudes"], metrics["std_change_magnitude"])
+            push!(consolidated_metrics["final_undershoot"], metrics["final_undershoot"])
+            push!(consolidated_metrics["tt_increases"], metrics["tt_increase"])
+
+            # Add to batch for detailed saving
+            if collect_detailed
+                detailed_metrics = Dict(
+                    "simulation_id" => sim_count,
+                    "ic_idx" => ic_idx,
+                    "rep" => rep,
+                    "initial_Tt" => Tt,
+                    "total_reward" => metrics["total_reward"],
+                    "initial_error" => metrics["initial_error"],
+                    "final_error" => metrics["final_error"],
+                    "num_changes" => metrics["num_changes"],
+                    "tt_increase" => metrics["tt_increase"],
+                    "iterations" => metrics["iterations"],
+                    "belief_history" => metrics["belief_history"],
+                    "min_end_time" => metrics["min_end_time"],
+                    "max_end_time" => metrics["max_end_time"]
+                )
+                push!(batch_detailed, detailed_metrics)
+            end
+
+            # Save batches periodically
+            if sim_count % save_frequency == 0 || sim_count == total_sims
+                batch_num = div(sim_count - 1, save_frequency) + 1
+                batch_file = joinpath(detailed_dir, "consolidated_batch_$(batch_num).json")
+                batch_data = Dict(
+                    "batch_start" => max(1, sim_count - save_frequency + 1),
+                    "batch_end" => sim_count,
+                    "metrics" => consolidated_metrics
+                )
+                save_json_safe(batch_data, batch_file)
+
+                if !isempty(batch_detailed)
+                    detailed_batch_file = joinpath(detailed_dir, "detailed_batch_$(batch_num).json")
+                    save_json_safe(batch_detailed, detailed_batch_file)
+                    batch_detailed = []
+                end
+            end
+
+            update!(progress, sim_count)
+        end
+    end
+
     return consolidated_metrics
 end
 
@@ -492,7 +662,7 @@ function save_consolidated_results(results::Dict, filepath::String)
             for (subkey, subvalue) in value
                 if isa(subvalue, Dict) && haskey(subvalue, "rewards")
                     # This is a solver result - keep only essential metrics
-                    consolidated[key][subkey] = Dict(
+                    result_dict = Dict(
                         "rewards" => subvalue["rewards"],
                         "initial_errors" => subvalue["initial_errors"],
                         "final_errors" => subvalue["final_errors"],
@@ -502,6 +672,10 @@ function save_consolidated_results(results::Dict, filepath::String)
                         "final_undershoot" => subvalue["final_undershoot"],
                         "policy_solve_time" => get(subvalue, "policy_solve_time", 0.0)
                     )
+                    if haskey(subvalue, "tt_increases")
+                        result_dict["tt_increases"] = subvalue["tt_increases"]
+                    end
+                    consolidated[key][subkey] = result_dict
                 else
                     consolidated[key][subkey] = subvalue
                 end
