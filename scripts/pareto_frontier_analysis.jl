@@ -20,8 +20,9 @@ using Random
 
 # Configuration constants
 const OUTPUT_DIR = "pareto_analysis_results"
-const DEFAULT_SOLVER = "QMDP"
+const DEFAULT_SOLVER = "MOMDP_SARSOP"
 const DEFAULT_NUM_SIMULATIONS = 100
+const DEFAULT_POLICY_TIMEOUT = 180
 const DEFAULT_MIN_END_TIME = 2
 const DEFAULT_MAX_END_TIME = 26
 const DEFAULT_NUM_CONDITIONS = 100
@@ -117,7 +118,7 @@ function parse_commandline()
         "--policy-timeout"
             help = "Maximum time in seconds for policy solver (used by SARSOP solvers)"
             arg_type = Int
-            default = 180
+            default = DEFAULT_POLICY_TIMEOUT
         "--verbose", "-v"
             help = "Enable verbose output"
             action = :store_true
@@ -192,7 +193,7 @@ function evaluate_baseline_solvers(
     discount::Float64,
     std_divisor::Float64,
     verbose::Bool;
-    policy_timeout::Int=180
+    policy_timeout::Int=DEFAULT_POLICY_TIMEOUT
 )
     baseline_results = []
 
@@ -266,7 +267,7 @@ function evaluate_reward_parameters(
     discount::Float64,
     std_divisor::Float64,
     verbose::Bool;
-    policy_timeout::Int=180
+    policy_timeout::Int=DEFAULT_POLICY_TIMEOUT
 )
     if verbose
         println("Evaluating λc=$(lambda_c), λe=$(lambda_e), λf=$(lambda_f)")
@@ -339,7 +340,7 @@ function run_pareto_sweep(
     std_divisor::Float64,
     output_dir::String,
     verbose::Bool;
-    policy_timeout::Int=180
+    policy_timeout::Int=DEFAULT_POLICY_TIMEOUT
 )
     mkpath(output_dir)
 
