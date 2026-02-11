@@ -3,7 +3,7 @@
 # Common functions shared between POMDP and MOMDP formulations  
 # ============================================================================
 
-function calculate_reward(t::Int, Ta::Int, Tt::Int, action_time::Int, min_end_time::Int, max_end_time::Int; lambda_c::Real = 3.0, lambda_e::Real = 2.0, lambda_f::Real = 1000.0)
+function calculate_reward(t::Int, Ta::Int, Tt::Int, action_time::Int, min_end_time::Int, max_end_time::Int; lambda_c::Real = 3.0, lambda_e::Real = 5.0, lambda_f::Real = 1000.0)
     
     # If the project is done, return neutral reward
     if t >= Tt || t + 1 == max_end_time
@@ -13,10 +13,10 @@ function calculate_reward(t::Int, Ta::Int, Tt::Int, action_time::Int, min_end_ti
     # Quadratic penalty — penalizes larger deviations disproportionately
     r = -lambda_c * (action_time - Tt)^2
 
-    # Add penalty if action changes from previous announced time
+    # Magnitude-proportional penalty for changing announcement
     if t > 0 && Ta != action_time
         if (action_time != Tt)
-            r -= lambda_e  # Penalty for changing the announced time
+            r -= lambda_e * abs(action_time - Ta)
         end
     end
 

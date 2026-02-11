@@ -6,7 +6,7 @@ end
 # Original w/ simplified reward function
 
 function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false, sigma_max::Float64=1.0,
-                      lambda_c::Real = 3.0, lambda_e::Real = 2.0, lambda_f::Real = 1000.0,
+                      lambda_c::Real = 3.0, lambda_e::Real = 5.0, lambda_f::Real = 1000.0,
                       p_no_effect::Float64 = 0.4, p_small::Float64 = 0.5, delta_small::Int = 1,
                       p_large::Float64 = 0.1, delta_large::Int = 3,
                       obs_distribution::Symbol = :normal, std_divisor::Float64 = 3.0)
@@ -47,8 +47,8 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
             new_t = min(t + 1, Tt)
             new_Ta = a.announced_time
 
-            # If keeping the same announcement, Tt is unchanged
-            if new_Ta == Ta
+            # First announcement (t == 0) or keeping same announcement — Tt unchanged
+            if t == 0 || new_Ta == Ta
                 return Deterministic((new_t, new_Ta, Tt))
             end
 

@@ -94,6 +94,11 @@ function MOMDPs.transition_y(problem::PlanningProblem, state::Tuple{Tuple{Int, I
         return Deterministic(Tt)
     end
 
+    # First announcement (t == 0) is not replanning
+    if t == 0
+        return Deterministic(Tt)
+    end
+
     return compute_tt_transition_distribution(Ta, action, Tt, problem.max_end_time;
         p_no_effect=problem.p_no_effect, p_small=problem.p_small, delta_small=problem.delta_small,
         p_large=problem.p_large, delta_large=problem.delta_large)
@@ -160,7 +165,7 @@ function define_momdp(
     initial_announce::Union{Int, Nothing}=nothing,
     sigma_max::Float64=1.0,
     lambda_c::Real = 3.0,
-    lambda_e::Real = 2.0,
+    lambda_e::Real = 5.0,
     lambda_f::Real = 1000.0,
     p_no_effect::Float64 = 0.4,
     p_small::Float64 = 0.5,
