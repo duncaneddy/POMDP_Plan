@@ -12,7 +12,7 @@ function run_paper_experiments(
     discount_factor::Float64 = 0.98,
     seed::Union{Int, Nothing} = nothing,
     verbose::Bool = false,
-    std_divisor::Float64 = 3.0,
+    sigma_max::Float64 = 1.0,
     save_frequency::Int = 50  # Save results every N simulations
 )
     # Set random seed
@@ -37,7 +37,7 @@ function run_paper_experiments(
         "discount_factor" => discount_factor,
         "seed" => seed,
         "timestamp" => timestamp,
-        "std_divisor" => std_divisor,
+        "sigma_max" => sigma_max,
         "save_frequency" => save_frequency
     )
     
@@ -78,7 +78,7 @@ function run_paper_experiments(
             max_end_time,
             discount_factor,
             verbose=verbose,
-            std_divisor=std_divisor
+            sigma_max=sigma_max
         )
         
         # Also create MOMDP for MOMDP_SARSOP solver
@@ -86,7 +86,7 @@ function run_paper_experiments(
             min_end_time,
             max_end_time,
             discount_factor,
-            std_divisor=std_divisor
+            sigma_max=sigma_max
         )
         
         # Generate policies for each solver

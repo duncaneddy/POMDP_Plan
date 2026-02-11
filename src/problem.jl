@@ -5,10 +5,11 @@ end
 
 # Original w/ simplified reward function
 
-function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false, std_divisor::Float64=3.0,
+function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false, sigma_max::Float64=1.0,
                       lambda_c::Real = 3.0, lambda_e::Real = 2.0, lambda_f::Real = 1000.0,
                       p_no_effect::Float64 = 0.4, p_small::Float64 = 0.5, delta_small::Int = 1,
-                      p_large::Float64 = 0.1, delta_large::Int = 3)
+                      p_large::Float64 = 0.1, delta_large::Int = 3,
+                      obs_distribution::Symbol = :normal, std_divisor::Float64 = 3.0)
     
     # Constants for rewards
     IMPOSSIBLE_TIME_REWARD = -1000
@@ -71,7 +72,8 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
             # We have just transitioned from (t - 1, Ta_prev, Tt) to (t, Ta, Tt)
             t, Ta, Tt = sp
 
-            return create_pomdp_observation(t, Ta, Tt, min_end_time, max_end_time, std_divisor=std_divisor)
+            return create_pomdp_observation(t, Ta, Tt, min_end_time, max_end_time,
+                sigma_max=sigma_max, obs_distribution=obs_distribution, std_divisor=std_divisor)
         end,
 
         reward = function(s, a)

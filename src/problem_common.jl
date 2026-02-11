@@ -10,8 +10,8 @@ function calculate_reward(t::Int, Ta::Int, Tt::Int, action_time::Int, min_end_ti
         return 0.0
     end
 
-    # Simple reward - penalize for the difference between announced and true end time
-    r = -lambda_c * abs(action_time - Tt)
+    # Quadratic penalty — penalizes larger deviations disproportionately
+    r = -lambda_c * (action_time - Tt)^2
 
     # Add penalty if action changes from previous announced time
     if t > 0 && Ta != action_time
@@ -34,7 +34,9 @@ end
 # Common Observation Functions
 # ============================================================================
 
-function compute_observation_distribution(t::Int, Tt::Int, min_end_time::Int, max_end_time::Int; std_divisor::Real = 3)
+function compute_observation_distribution(t::Int, Tt::Int, min_end_time::Int, max_end_time::Int;
+        sigma_max::Real = 0.6, sigma_min::Real = 0.2,
+        obs_distribution::Symbol = :normal, std_divisor::Real = 3.0)
     # Check for deterministic cases
     if t >= Tt || t + 1 == max_end_time || Tt - t <= 0
         return nothing  # Caller should handle deterministic case
@@ -44,16 +46,44 @@ function compute_observation_distribution(t::Int, Tt::Int, min_end_time::Int, ma
     min_obs_time = max(t + 1, min_end_time)
     possible_Tos = collect(min_obs_time:max_end_time)
 
-    # Poisson observation: rate = remaining time, so observations narrow as project progresses
-    λ = max(1, Tt - t)
-    poisson_dist = Poisson(λ)
+    probs = if obs_distribution == :lognormal
+        # Log-normal observation: X = To - t ~ LogNormal(μ_ln, σ_ln)
+        # median(X) = exp(μ_ln) = remaining, so observations are centered on Tt
+        remaining = Tt - t
+        μ_ln = log(remaining)
 
-    # Compute probabilities: To = t + X where X ~ Poisson(λ), so P(To) = P(X = To - t)
-    probs = Float64[]
-    for To_val in possible_Tos
-        x = To_val - t
-        p = x >= 0 ? pdf(poisson_dist, x) : 0.0
-        push!(probs, p)
+        # σ_ln scales linearly: wide (sigma_max) when far from completion, tight (sigma_min) near completion
+        max_remaining = max_end_time
+        if max_remaining <= 1
+            σ_ln = sigma_min
+        else
+            σ_ln = sigma_min + (sigma_max - sigma_min) * (remaining - 1) / (max_remaining - 1)
+        end
+
+        ln_dist = LogNormal(μ_ln, σ_ln)
+
+        # Compute probabilities: To = t + X, so P(To) = pdf(X = To - t) evaluated at each integer
+        p = Float64[]
+        for To_val in possible_Tos
+            x = To_val - t
+            push!(p, x > 0 ? pdf(ln_dist, x) : 0.0)
+        end
+        p
+
+    elseif obs_distribution == :normal
+        # Truncated normal observation: μ = Tt, σ = (Tt - t) / std_divisor
+        μ = Tt
+        σ = (Tt - t) / std_divisor
+        base_dist = Normal(μ, σ)
+
+        p = Float64[]
+        for To_val in possible_Tos
+            push!(p, pdf(base_dist, To_val))
+        end
+        p
+
+    else
+        error("Unknown obs_distribution: $obs_distribution. Use :lognormal or :normal.")
     end
 
     # Normalize over the truncated range
@@ -66,10 +96,14 @@ function compute_observation_distribution(t::Int, Tt::Int, min_end_time::Int, ma
     return (possible_Tos, probs)
 end
 
-function create_momdp_observation(t::Int, Tt::Int, min_end_time::Int, max_end_time::Int; std_divisor::Real = 3)
+function create_momdp_observation(t::Int, Tt::Int, min_end_time::Int, max_end_time::Int;
+        sigma_max::Real = 0.6, sigma_min::Real = 0.2,
+        obs_distribution::Symbol = :normal, std_divisor::Real = 3.0)
     # Try to compute stochastic distribution
-    result = compute_observation_distribution(t, Tt, min_end_time, max_end_time; std_divisor=std_divisor)
-    
+    result = compute_observation_distribution(t, Tt, min_end_time, max_end_time;
+        sigma_max=sigma_max, sigma_min=sigma_min,
+        obs_distribution=obs_distribution, std_divisor=std_divisor)
+
     if result === nothing
         # Deterministic case: return true end time
         return Deterministic(Tt)
@@ -79,9 +113,13 @@ function create_momdp_observation(t::Int, Tt::Int, min_end_time::Int, max_end_ti
     end
 end
 
-function create_pomdp_observation(t::Int, Ta::Int, Tt::Int, min_end_time::Int, max_end_time::Int; std_divisor::Real = 3)
+function create_pomdp_observation(t::Int, Ta::Int, Tt::Int, min_end_time::Int, max_end_time::Int;
+        sigma_max::Real = 0.6, sigma_min::Real = 0.2,
+        obs_distribution::Symbol = :normal, std_divisor::Real = 3.0)
     # Try to compute stochastic distribution
-    result = compute_observation_distribution(t, Tt, min_end_time, max_end_time; std_divisor=std_divisor)
+    result = compute_observation_distribution(t, Tt, min_end_time, max_end_time;
+        sigma_max=sigma_max, sigma_min=sigma_min,
+        obs_distribution=obs_distribution, std_divisor=std_divisor)
 
     if result === nothing
         # Deterministic case: return full observation tuple with true end time

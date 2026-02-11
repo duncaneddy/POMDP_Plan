@@ -3,7 +3,7 @@ mutable struct PlanningProblem <: MOMDP{Tuple{Int, Int}, Int, Int, Int}
     max_end_time::Int
     discount_factor::Float64
     initial_announced_time::Union{Int, Nothing}
-    std_divisor::Float64
+    sigma_max::Float64
     lambda_c::Real
     lambda_e::Real
     lambda_f::Real
@@ -12,6 +12,8 @@ mutable struct PlanningProblem <: MOMDP{Tuple{Int, Int}, Int, Int, Int}
     delta_small::Int
     p_large::Float64
     delta_large::Int
+    obs_distribution::Symbol
+    std_divisor::Float64
 end
 
 # Define these relationships for the MOMDP to improve performance
@@ -131,7 +133,8 @@ function POMDPs.observation(problem::PlanningProblem, action::Int, state::Tuple{
     t, Ta = state[1]
     Tt = state[2]
 
-    return create_momdp_observation(t, Tt, problem.min_end_time, problem.max_end_time, std_divisor=problem.std_divisor)
+    return create_momdp_observation(t, Tt, problem.min_end_time, problem.max_end_time,
+        sigma_max=problem.sigma_max, obs_distribution=problem.obs_distribution, std_divisor=problem.std_divisor)
 
 end
 
@@ -155,7 +158,7 @@ function define_momdp(
     max_end_time::Int=20,
     discount_factor::Float64=0.975;
     initial_announce::Union{Int, Nothing}=nothing,
-    std_divisor::Float64=3.0,
+    sigma_max::Float64=1.0,
     lambda_c::Real = 3.0,
     lambda_e::Real = 2.0,
     lambda_f::Real = 1000.0,
@@ -163,14 +166,16 @@ function define_momdp(
     p_small::Float64 = 0.5,
     delta_small::Int = 1,
     p_large::Float64 = 0.1,
-    delta_large::Int = 3
+    delta_large::Int = 3,
+    obs_distribution::Symbol = :normal,
+    std_divisor::Float64 = 3.0
 )
     return PlanningProblem(
         min_end_time,
         max_end_time,
         discount_factor,
         initial_announce,
-        std_divisor,
+        sigma_max,
         lambda_c,
         lambda_e,
         lambda_f,
@@ -178,6 +183,8 @@ function define_momdp(
         p_small,
         delta_small,
         p_large,
-        delta_large
+        delta_large,
+        obs_distribution,
+        std_divisor
     )
 end

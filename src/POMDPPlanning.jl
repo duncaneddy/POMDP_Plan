@@ -79,10 +79,10 @@ function parse_commandline()
             help = "Discount factor for the POMDP"
             arg_type = Float64
             default = 0.95 # Keep fairly high since this is actually a finite horizon problem
-        "--std-divisor", "-i"
-            help = "Standard deviation divisor for the noise in the true end time observation (default is 3.0)"
+        "--sigma-max", "-i"
+            help = "Maximum log-normal sigma for observation noise (wide early observations). Default 0.6"
             arg_type = Float64
-            default = 3.0
+            default = 0.6
         "--verbose", "-v"
             help = "Enable verbose output"
             nargs = 0
@@ -134,6 +134,14 @@ function parse_commandline()
             help = "Size of large Tt increase when replanning (default 3)"
             arg_type = Int
             default = 3
+        "--obs-distribution"
+            help = "Observation distribution type: 'normal' (truncated normal) or 'lognormal' (default: normal)"
+            arg_type = String
+            default = "normal"
+        "--std-divisor"
+            help = "Standard deviation divisor for normal observation model: σ = (Tt - t) / std_divisor (default 3.0)"
+            arg_type = Float64
+            default = 3.0
         "command"
             help = "Command to execute (solve or evaluate)"
             required = true
@@ -189,6 +197,13 @@ function main()
         end
     end
     
+    # Convert obs-distribution string to Symbol
+    obs_distribution = Symbol(args["obs-distribution"])
+    if obs_distribution ∉ (:normal, :lognormal)
+        println("Error: obs-distribution must be 'normal' or 'lognormal', got '$(args["obs-distribution"])'")
+        return 1
+    end
+
     # If a seed is provided, set the random seed
     if args["seed"] != nothing
         println("Setting random seed to $(args["seed"])")
@@ -216,12 +231,14 @@ function main()
                     args["max-end-time"],
                     args["discount"],
                     initial_announce=args["initial-announce"],
-                    std_divisor=args["std-divisor"],
+                    sigma_max=args["sigma-max"],
                     p_no_effect=args["p-no-effect"],
                     p_small=args["p-small"],
                     delta_small=args["delta-small"],
                     p_large=args["p-large"],
-                    delta_large=args["delta-large"]
+                    delta_large=args["delta-large"],
+                    obs_distribution=obs_distribution,
+                    std_divisor=args["std-divisor"]
                 )
             elseif pomdp === nothing
                 # Create planning POMDP
@@ -232,12 +249,14 @@ function main()
                     verbose=args["verbose"],
                     initial_announce=args["initial-announce"],
                     fixed_true_end_time=args["true-end-time"],
-                    std_divisor=args["std-divisor"],
+                    sigma_max=args["sigma-max"],
                     p_no_effect=args["p-no-effect"],
                     p_small=args["p-small"],
                     delta_small=args["delta-small"],
                     p_large=args["p-large"],
-                    delta_large=args["delta-large"]
+                    delta_large=args["delta-large"],
+                    obs_distribution=obs_distribution,
+                    std_divisor=args["std-divisor"]
                 )
             end
             
@@ -262,12 +281,14 @@ function main()
                 args["max-end-time"],
                 args["discount"],
                 initial_announce=args["initial-announce"],
-                std_divisor=args["std-divisor"],
+                sigma_max=args["sigma-max"],
                 p_no_effect=args["p-no-effect"],
                 p_small=args["p-small"],
                 delta_small=args["delta-small"],
                 p_large=args["p-large"],
-                delta_large=args["delta-large"]
+                delta_large=args["delta-large"],
+                obs_distribution=obs_distribution,
+                std_divisor=args["std-divisor"]
             )
         else
             # Create planning POMDP
@@ -278,12 +299,14 @@ function main()
                 verbose=args["verbose"],
                 initial_announce=args["initial-announce"],
                 fixed_true_end_time=args["true-end-time"],
-                std_divisor=args["std-divisor"],
+                sigma_max=args["sigma-max"],
                 p_no_effect=args["p-no-effect"],
                 p_small=args["p-small"],
                 delta_small=args["delta-small"],
                 p_large=args["p-large"],
-                delta_large=args["delta-large"]
+                delta_large=args["delta-large"],
+                obs_distribution=obs_distribution,
+                std_divisor=args["std-divisor"]
             )
         end
         
@@ -432,14 +455,16 @@ function main()
             discount_factor=args["discount"],
             seed=args["seed"],
             verbose=args["verbose"],
-            std_divisor=args["std-divisor"],
+            sigma_max=args["sigma-max"],
             p_no_effect=args["p-no-effect"],
             p_small=args["p-small"],
             delta_small=args["delta-small"],
             p_large=args["p-large"],
-            delta_large=args["delta-large"]
+            delta_large=args["delta-large"],
+            obs_distribution=obs_distribution,
+            std_divisor=args["std-divisor"]
         )
-        
+
     else
         # Handle unknown command
         println("Unknown command: $(args["command"])")
