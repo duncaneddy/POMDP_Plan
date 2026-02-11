@@ -15,7 +15,9 @@ function run_paper_experiments(
     verbose::Bool = false,
     sigma_max::Float64 = 1.0,
     save_frequency::Int = 50,  # Save results every N simulations
-    tt_margin_fraction::Float64 = 0.1
+    tt_margin_fraction::Float64 = 0.1,
+    lambda_c::Real = 0.10,
+    lambda_e::Real = 20.0
 )
     # Set random seed
     if seed === nothing
@@ -44,7 +46,9 @@ function run_paper_experiments(
         "timestamp" => timestamp,
         "sigma_max" => sigma_max,
         "save_frequency" => save_frequency,
-        "tt_margin_fraction" => tt_margin_fraction
+        "tt_margin_fraction" => tt_margin_fraction,
+        "lambda_c" => lambda_c,
+        "lambda_e" => lambda_e
     )
     
     config_path = joinpath(experiment_dir, "experiment_config.json")
@@ -83,15 +87,19 @@ function run_paper_experiments(
             max_end_time,
             discount_factor,
             verbose=verbose,
-            sigma_max=sigma_max
+            sigma_max=sigma_max,
+            lambda_c=lambda_c,
+            lambda_e=lambda_e
         )
-        
+
         # Also create MOMDP for MOMDP_SARSOP solver
         momdp = define_momdp(
             min_end_time,
             max_end_time,
             discount_factor,
-            sigma_max=sigma_max
+            sigma_max=sigma_max,
+            lambda_c=lambda_c,
+            lambda_e=lambda_e
         )
         
         # Generate policies for each solver
