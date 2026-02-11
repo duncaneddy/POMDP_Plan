@@ -114,6 +114,10 @@ function parse_commandline()
             help = "Standard deviation divisor for observations"
             arg_type = Float64
             default = DEFAULT_STD_DIVISOR
+        "--policy-timeout"
+            help = "Maximum time in seconds for policy solver (used by SARSOP solvers)"
+            arg_type = Int
+            default = 180
         "--verbose", "-v"
             help = "Enable verbose output"
             action = :store_true
@@ -187,7 +191,8 @@ function evaluate_baseline_solvers(
     num_simulations::Int,
     discount::Float64,
     std_divisor::Float64,
-    verbose::Bool
+    verbose::Bool;
+    policy_timeout::Int=180
 )
     baseline_results = []
 
@@ -208,7 +213,7 @@ function evaluate_baseline_solvers(
         )
 
         # Generate policy
-        policy_data = POMDPPlanning.get_policy(pomdp, solver, tempdir(), verbose=false, save_policy=false)
+        policy_data = POMDPPlanning.get_policy(pomdp, solver, tempdir(), verbose=false, save_policy=false, policy_timeout=policy_timeout)
         policy = policy_data["policy"]
 
         # Run simulations with initial conditions
@@ -260,7 +265,8 @@ function evaluate_reward_parameters(
     num_simulations::Int,
     discount::Float64,
     std_divisor::Float64,
-    verbose::Bool
+    verbose::Bool;
+    policy_timeout::Int=180
 )
     if verbose
         println("Evaluating λc=$(lambda_c), λe=$(lambda_e), λf=$(lambda_f)")
@@ -278,7 +284,7 @@ function evaluate_reward_parameters(
     )
 
     # Generate policy for this parameter configuration
-    policy_data = POMDPPlanning.get_policy(pomdp, solver, tempdir(), verbose=false, save_policy=false)
+    policy_data = POMDPPlanning.get_policy(pomdp, solver, tempdir(), verbose=false, save_policy=false, policy_timeout=policy_timeout)
     policy = policy_data["policy"]
 
     # Run simulations with initial conditions
@@ -332,7 +338,8 @@ function run_pareto_sweep(
     discount::Float64,
     std_divisor::Float64,
     output_dir::String,
-    verbose::Bool
+    verbose::Bool;
+    policy_timeout::Int=180
 )
     mkpath(output_dir)
 
@@ -350,7 +357,8 @@ function run_pareto_sweep(
         result = evaluate_reward_parameters(
             min_end_time, max_end_time, initial_conditions,
             solver, lambda_c, base_lambda_e, lambda_f,
-            num_simulations, discount, std_divisor, verbose
+            num_simulations, discount, std_divisor, verbose,
+            policy_timeout=policy_timeout
         )
         result["sweep_type"] = "lambda_c_sweep"
         push!(all_results, result)
@@ -363,7 +371,8 @@ function run_pareto_sweep(
         result = evaluate_reward_parameters(
             min_end_time, max_end_time, initial_conditions,
             solver, base_lambda_c, lambda_e, lambda_f,
-            num_simulations, discount, std_divisor, verbose
+            num_simulations, discount, std_divisor, verbose,
+            policy_timeout=policy_timeout
         )
         result["sweep_type"] = "lambda_e_sweep"
         push!(all_results, result)
@@ -379,7 +388,8 @@ function run_pareto_sweep(
         result = evaluate_reward_parameters(
             min_end_time, max_end_time, initial_conditions,
             solver, lambda_c, lambda_e, lambda_f,
-            num_simulations, discount, std_divisor, verbose
+            num_simulations, discount, std_divisor, verbose,
+            policy_timeout=policy_timeout
         )
         result["sweep_type"] = "ratio_sweep"
         result["lambda_ratio"] = ratio
@@ -399,7 +409,8 @@ function run_pareto_sweep(
             result = evaluate_reward_parameters(
                 min_end_time, max_end_time, initial_conditions,
                 solver, lambda_c, lambda_e, lambda_f,
-                num_simulations, discount, std_divisor, verbose
+                num_simulations, discount, std_divisor, verbose,
+                policy_timeout=policy_timeout
             )
             result["sweep_type"] = "grid_sweep"
             push!(all_results, result)
@@ -422,7 +433,8 @@ function run_pareto_sweep(
         num_simulations,
         discount,
         std_divisor,
-        verbose
+        verbose,
+        policy_timeout=policy_timeout
     )
 
     # Combine all results
@@ -921,7 +933,8 @@ function main()
         args["discount"],
         args["std-divisor"],
         args["output-dir"],
-        args["verbose"]
+        args["verbose"],
+        policy_timeout=args["policy-timeout"]
     )
 
     # Generate plots
