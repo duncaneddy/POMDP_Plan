@@ -208,7 +208,7 @@ function evaluate_baseline_solvers(
         )
 
         # Generate policy
-        policy_data = POMDPPlanning.get_policy(pomdp, solver, tempdir(), verbose=false)
+        policy_data = POMDPPlanning.get_policy(pomdp, solver, tempdir(), verbose=false, save_policy=false)
         policy = policy_data["policy"]
 
         # Run simulations with initial conditions
@@ -278,7 +278,7 @@ function evaluate_reward_parameters(
     )
 
     # Generate policy for this parameter configuration
-    policy_data = POMDPPlanning.get_policy(pomdp, solver, tempdir(), verbose=false)
+    policy_data = POMDPPlanning.get_policy(pomdp, solver, tempdir(), verbose=false, save_policy=false)
     policy = policy_data["policy"]
 
     # Run simulations with initial conditions

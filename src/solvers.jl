@@ -60,11 +60,12 @@ function POMDPs.action(policy::ObservedTimePolicy, belief, state=nothing)
 end
 
 function get_policy(pomdp, solver_type, output_dir;
-                    min_end_time::Int=10, 
-                    max_end_time::Int=20, 
+                    min_end_time::Int=10,
+                    max_end_time::Int=20,
                     discount_factor::Float64=0.975,
                     verbose::Bool=false,
-                    policy_timeout::Int=300)
+                    policy_timeout::Int=300,
+                    save_policy::Bool=true)
 
     if uppercase(solver_type) == "FIB"
         println("Computing policy using FIB solver")
@@ -103,11 +104,6 @@ function get_policy(pomdp, solver_type, output_dir;
 
     println("Policy computed in $(elapsed_time) seconds")
     
-    # Create directory if it doesn't exist
-    if !isdir(output_dir)
-        mkpath(output_dir)
-    end
-    
     # Create metadata
     metadata = Dict(
         "min_end_time" => min_end_time,
@@ -117,28 +113,35 @@ function get_policy(pomdp, solver_type, output_dir;
         "generation_date" => string(Dates.now()),
         "computation_time" => elapsed_time
     )
-    
-    # Save policy
-    if uppercase(solver_type) != "MOSTLIKELY" && uppercase(solver_type) != "OBSERVEDTIME" && uppercase(solver_type) != "MOMDP_SARSOP"
-        policy_filepath = joinpath(output_dir, "policy_$(lowercase(solver_type)).jld2")
-        if isfile(policy_filepath)
-            if verbose
-                println("Removing existing policy file: $policy_filepath")
-            end
-            rm(policy_filepath)
+
+    if save_policy
+        # Create directory if it doesn't exist
+        if !isdir(output_dir)
+            mkpath(output_dir)
         end
-        save(policy_filepath, "policy", policy, "metadata", metadata)
-        println("Policy saved to: $policy_filepath")
-    else
-        println("Skipping policy save")
+
+        # Save policy
+        if uppercase(solver_type) != "MOSTLIKELY" && uppercase(solver_type) != "OBSERVEDTIME" && uppercase(solver_type) != "MOMDP_SARSOP"
+            policy_filepath = joinpath(output_dir, "policy_$(lowercase(solver_type)).jld2")
+            if isfile(policy_filepath)
+                if verbose
+                    println("Removing existing policy file: $policy_filepath")
+                end
+                rm(policy_filepath)
+            end
+            save(policy_filepath, "policy", policy, "metadata", metadata)
+            println("Policy saved to: $policy_filepath")
+        else
+            println("Skipping policy save")
+        end
+
+        # Save metadata separately as JSON for easier inspection
+        metadata_filepath = joinpath(output_dir, "policy_$(lowercase(solver_type)).json")
+        open(metadata_filepath, "w") do f
+            JSON.print(f, metadata, 4)  # 4 spaces for indentation
+        end
+        println("Metadata saved to: $metadata_filepath")
     end
-    
-    # Save metadata separately as JSON for easier inspection
-    metadata_filepath = joinpath(output_dir, "policy_$(lowercase(solver_type)).json")
-    open(metadata_filepath, "w") do f
-        JSON.print(f, metadata, 4)  # 4 spaces for indentation
-    end
-    println("Metadata saved to: $metadata_filepath")
 
     println("Policy solve complete.")
     
