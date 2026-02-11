@@ -20,7 +20,7 @@ using Random
 
 # Configuration constants
 const OUTPUT_DIR = "pareto_analysis_results"
-const DEFAULT_SOLVER = "MOMDP_SARSOP"
+const DEFAULT_SOLVER = "QMDP"
 const DEFAULT_NUM_SIMULATIONS = 100
 const DEFAULT_POLICY_TIMEOUT = 180
 const DEFAULT_MIN_END_TIME = 2
@@ -878,6 +878,95 @@ function compute_pareto_frontier_from_points(x_values, y_values)
     return pareto_points, pareto_indices
 end
 
+function print_pareto_frontier_summary(results)
+    grid_results = filter(r -> get(r, "sweep_type", "") == "grid_sweep", results)
+    baseline_results = filter(r -> get(r, "is_baseline", false), results)
+
+    if isempty(grid_results)
+        println("\nNo grid sweep results to compute Pareto frontier.")
+        return
+    end
+
+    println("\n")
+    println("=" ^ 100)
+    println("PARETO FRONTIER SUMMARY")
+    println("=" ^ 100)
+
+    # Define the error metrics to analyze
+    error_metric_configs = [
+        ("rms_error", "RMS Error"),
+        ("final_error", "Final Error"),
+        ("avg_weighted_error", "Avg Weighted Error"),
+    ]
+
+    for (metric_key, metric_name) in error_metric_configs
+        x_data = [r["avg_changes"] for r in grid_results]
+        y_data = [getfield(r["error_metrics"], Symbol(metric_key)) for r in grid_results]
+
+        _, pareto_indices = compute_pareto_frontier_from_points(x_data, y_data)
+
+        if isempty(pareto_indices)
+            continue
+        end
+
+        pareto_results = grid_results[pareto_indices]
+
+        println("\n── Pareto Frontier: Avg Changes vs $metric_name ──")
+        println()
+        @printf("  %-8s  %-8s  %-12s  %-14s  %-12s\n",
+                "λ_c", "λ_e", "Avg Changes", "Avg Chg Mag", metric_name)
+        println("  " * "-" ^ 60)
+
+        for r in pareto_results
+            err_val = getfield(r["error_metrics"], Symbol(metric_key))
+            @printf("  %-8.2f  %-8.2f  %-12.3f  %-14.3f  %-12.4f\n",
+                    r["lambda_c"], r["lambda_e"],
+                    r["avg_changes"], r["avg_change_magnitude"], err_val)
+        end
+
+        # Print baselines for comparison
+        if !isempty(baseline_results)
+            println("  " * "-" ^ 60)
+            for b in baseline_results
+                err_val = getfield(b["error_metrics"], Symbol(metric_key))
+                @printf("  %-17s  %-12.3f  %-14.3f  %-12.4f  (baseline)\n",
+                        b["solver"], b["avg_changes"], b["avg_change_magnitude"], err_val)
+            end
+        end
+    end
+
+    # Also print the Pareto frontier for avg_change_magnitude
+    println("\n── Pareto Frontier: Avg Changes vs Avg Change Magnitude ──")
+    println()
+    x_data = [r["avg_changes"] for r in grid_results]
+    y_data = [r["avg_change_magnitude"] for r in grid_results]
+    _, pareto_indices = compute_pareto_frontier_from_points(x_data, y_data)
+
+    if !isempty(pareto_indices)
+        pareto_results = grid_results[pareto_indices]
+
+        @printf("  %-8s  %-8s  %-12s  %-14s\n",
+                "λ_c", "λ_e", "Avg Changes", "Avg Chg Mag")
+        println("  " * "-" ^ 46)
+
+        for r in pareto_results
+            @printf("  %-8.2f  %-8.2f  %-12.3f  %-14.3f\n",
+                    r["lambda_c"], r["lambda_e"],
+                    r["avg_changes"], r["avg_change_magnitude"])
+        end
+
+        if !isempty(baseline_results)
+            println("  " * "-" ^ 46)
+            for b in baseline_results
+                @printf("  %-17s  %-12.3f  %-14.3f  (baseline)\n",
+                        b["solver"], b["avg_changes"], b["avg_change_magnitude"])
+            end
+        end
+    end
+
+    println("\n" * "=" ^ 100)
+end
+
 function main()
     args = parse_commandline()
 
@@ -940,6 +1029,9 @@ function main()
 
     # Generate plots
     create_pareto_plots(results, args["output-dir"])
+
+    # Print Pareto frontier summary to command line
+    print_pareto_frontier_summary(results)
 
     println("\nPareto frontier analysis complete!")
     println("Results and plots saved to: $(args["output-dir"])")
