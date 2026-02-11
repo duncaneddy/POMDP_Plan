@@ -10,7 +10,12 @@ function run_experiment(
     discount_factor::Float64=0.99,
     seed::Union{Int, Nothing}=nothing,
     verbose::Bool=false,
-    std_divisor::Float64=3.0
+    std_divisor::Float64=3.0,
+    p_no_effect::Float64=0.4,
+    p_small::Float64=0.5,
+    delta_small::Int=1,
+    p_large::Float64=0.1,
+    delta_large::Int=3
 )
     # Set random seed if provided or generate one
     if seed === nothing
@@ -49,8 +54,10 @@ function run_experiment(
     end
 
     # Create POMDP and MOMDP problem instance
-    pomdp = define_pomdp(min_end_time, max_end_time, discount_factor, verbose=verbose, initial_announce=initial_announce, fixed_true_end_time=fixed_true_end_time, std_divisor=std_divisor)
-    momdp = define_momdp(min_end_time, max_end_time, discount_factor, initial_announce=initial_announce, std_divisor=std_divisor)
+    pomdp = define_pomdp(min_end_time, max_end_time, discount_factor, verbose=verbose, initial_announce=initial_announce, fixed_true_end_time=fixed_true_end_time, std_divisor=std_divisor,
+        p_no_effect=p_no_effect, p_small=p_small, delta_small=delta_small, p_large=p_large, delta_large=delta_large)
+    momdp = define_momdp(min_end_time, max_end_time, discount_factor, initial_announce=initial_announce, std_divisor=std_divisor,
+        p_no_effect=p_no_effect, p_small=p_small, delta_small=delta_small, p_large=p_large, delta_large=delta_large)
     
     # Generate policies for each solver
     policies = Dict()

@@ -7,6 +7,11 @@ mutable struct PlanningProblem <: MOMDP{Tuple{Int, Int}, Int, Int, Int}
     lambda_c::Real
     lambda_e::Real
     lambda_f::Real
+    p_no_effect::Float64
+    p_small::Float64
+    delta_small::Int
+    p_large::Float64
+    delta_large::Int
 end
 
 # Define these relationships for the MOMDP to improve performance
@@ -79,8 +84,17 @@ function MOMDPs.transition_x(problem::PlanningProblem, state::Tuple{Tuple{Int, I
 end
 
 function MOMDPs.transition_y(problem::PlanningProblem, state::Tuple{Tuple{Int, Int}, Int}, action::Int, xprime::Tuple{Int, Int})
-    # The true end time Tt is independent of the action, so we return the same state
-    return Deterministic(state[2])
+    t, Ta = state[1]
+    Tt = state[2]
+
+    # If project is already done, Tt stays the same
+    if t >= Tt
+        return Deterministic(Tt)
+    end
+
+    return compute_tt_transition_distribution(Ta, action, Tt, problem.max_end_time;
+        p_no_effect=problem.p_no_effect, p_small=problem.p_small, delta_small=problem.delta_small,
+        p_large=problem.p_large, delta_large=problem.delta_large)
 end
 
 ## Define additional helpers for the MOMDP
@@ -137,14 +151,19 @@ function POMDPs.isterminal(problem::PlanningProblem, state::Tuple{Tuple{Int, Int
 end
 
 function define_momdp(
-    min_end_time::Int=10, 
-    max_end_time::Int=20, 
+    min_end_time::Int=10,
+    max_end_time::Int=20,
     discount_factor::Float64=0.975;
     initial_announce::Union{Int, Nothing}=nothing,
     std_divisor::Float64=3.0,
     lambda_c::Real = 3.0,
     lambda_e::Real = 2.0,
-    lambda_f::Real = 1000.0
+    lambda_f::Real = 1000.0,
+    p_no_effect::Float64 = 0.4,
+    p_small::Float64 = 0.5,
+    delta_small::Int = 1,
+    p_large::Float64 = 0.1,
+    delta_large::Int = 3
 )
     return PlanningProblem(
         min_end_time,
@@ -154,6 +173,11 @@ function define_momdp(
         std_divisor,
         lambda_c,
         lambda_e,
-        lambda_f
+        lambda_f,
+        p_no_effect,
+        p_small,
+        delta_small,
+        p_large,
+        delta_large
     )
 end

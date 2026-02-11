@@ -5,8 +5,10 @@ end
 
 # Original w/ simplified reward function
 
-function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false, std_divisor::Float64=3.0, 
-                      lambda_c::Real = 3.0, lambda_e::Real = 2.0, lambda_f::Real = 1000.0)
+function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Float64; initial_announce::Union{Int, Nothing}=nothing, fixed_true_end_time::Union{Int, Nothing}=nothing, verbose::Bool = false, std_divisor::Float64=3.0,
+                      lambda_c::Real = 3.0, lambda_e::Real = 2.0, lambda_f::Real = 1000.0,
+                      p_no_effect::Float64 = 0.4, p_small::Float64 = 0.5, delta_small::Int = 1,
+                      p_large::Float64 = 0.1, delta_large::Int = 3)
     
     # Constants for rewards
     IMPOSSIBLE_TIME_REWARD = -1000
@@ -35,16 +37,34 @@ function define_pomdp(min_end_time::Int, max_end_time::Int, discount_factor::Flo
 
         transition = function(s, a)
             t, Ta, Tt = s
-            # Move time forward, but not beyond the true end time
-            t = min(t + 1, Tt)
 
-            # Update Ta to the announced_time chosen by the action
-            # Note that the action can be any number in min_end_time:max_end_time 
-            # The paper restricts this to only the previous observed time
+            # If project is done, stay in terminal state
+            if t >= Tt
+                return Deterministic(s)
+            end
+
+            new_t = min(t + 1, Tt)
             new_Ta = a.announced_time
-            sp = (t, new_Ta, Tt)
 
-            return Deterministic(sp)
+            # If keeping the same announcement, Tt is unchanged
+            if new_Ta == Ta
+                return Deterministic((new_t, new_Ta, Tt))
+            end
+
+            # Agent changed announcement — Tt may stochastically increase
+            tt_dist = compute_tt_transition_distribution(Ta, new_Ta, Tt, max_end_time;
+                p_no_effect=p_no_effect, p_small=p_small, delta_small=delta_small,
+                p_large=p_large, delta_large=delta_large)
+
+            if tt_dist isa Deterministic
+                return Deterministic((new_t, new_Ta, tt_dist.val))
+            end
+
+            # Build SparseCat over full state tuples
+            tt_vals = support(tt_dist)
+            tt_probs = [pdf(tt_dist, v) for v in tt_vals]
+            state_vals = [(new_t, new_Ta, ttv) for ttv in tt_vals]
+            return SparseCat(state_vals, tt_probs)
         end,
 
         observation = function(a, sp)

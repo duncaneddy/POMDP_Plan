@@ -114,6 +114,26 @@ function parse_commandline()
             help = "Timeout for policy generation in seconds (default is 300 seconds)"
             arg_type = Int
             default = 300
+        "--p-no-effect"
+            help = "Probability that replanning has no effect on Tt (default 0.4)"
+            arg_type = Float64
+            default = 0.4
+        "--p-small"
+            help = "Probability of a small Tt increase when replanning (default 0.5)"
+            arg_type = Float64
+            default = 0.5
+        "--delta-small"
+            help = "Size of small Tt increase when replanning (default 1)"
+            arg_type = Int
+            default = 1
+        "--p-large"
+            help = "Probability of a large Tt increase when replanning (default 0.1)"
+            arg_type = Float64
+            default = 0.1
+        "--delta-large"
+            help = "Size of large Tt increase when replanning (default 3)"
+            arg_type = Int
+            default = 3
         "command"
             help = "Command to execute (solve or evaluate)"
             required = true
@@ -196,7 +216,12 @@ function main()
                     args["max-end-time"],
                     args["discount"],
                     initial_announce=args["initial-announce"],
-                    std_divisor=args["std-divisor"]
+                    std_divisor=args["std-divisor"],
+                    p_no_effect=args["p-no-effect"],
+                    p_small=args["p-small"],
+                    delta_small=args["delta-small"],
+                    p_large=args["p-large"],
+                    delta_large=args["delta-large"]
                 )
             elseif pomdp === nothing
                 # Create planning POMDP
@@ -207,7 +232,12 @@ function main()
                     verbose=args["verbose"],
                     initial_announce=args["initial-announce"],
                     fixed_true_end_time=args["true-end-time"],
-                    std_divisor=args["std-divisor"]
+                    std_divisor=args["std-divisor"],
+                    p_no_effect=args["p-no-effect"],
+                    p_small=args["p-small"],
+                    delta_small=args["delta-small"],
+                    p_large=args["p-large"],
+                    delta_large=args["delta-large"]
                 )
             end
             
@@ -232,7 +262,12 @@ function main()
                 args["max-end-time"],
                 args["discount"],
                 initial_announce=args["initial-announce"],
-                std_divisor=args["std-divisor"]
+                std_divisor=args["std-divisor"],
+                p_no_effect=args["p-no-effect"],
+                p_small=args["p-small"],
+                delta_small=args["delta-small"],
+                p_large=args["p-large"],
+                delta_large=args["delta-large"]
             )
         else
             # Create planning POMDP
@@ -243,7 +278,12 @@ function main()
                 verbose=args["verbose"],
                 initial_announce=args["initial-announce"],
                 fixed_true_end_time=args["true-end-time"],
-                std_divisor=args["std-divisor"]
+                std_divisor=args["std-divisor"],
+                p_no_effect=args["p-no-effect"],
+                p_small=args["p-small"],
+                delta_small=args["delta-small"],
+                p_large=args["p-large"],
+                delta_large=args["delta-large"]
             )
         end
         
@@ -390,9 +430,14 @@ function main()
             fixed_true_end_time=args["true-end-time"],
             initial_announce=args["initial-announce"],
             discount_factor=args["discount"],
-            seed=args["seed"],  # Add this line
+            seed=args["seed"],
             verbose=args["verbose"],
-            std_divisor=args["std-divisor"]
+            std_divisor=args["std-divisor"],
+            p_no_effect=args["p-no-effect"],
+            p_small=args["p-small"],
+            delta_small=args["delta-small"],
+            p_large=args["p-large"],
+            delta_large=args["delta-large"]
         )
         
     else

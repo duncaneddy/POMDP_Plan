@@ -43,39 +43,26 @@ function compute_observation_distribution(t::Int, Tt::Int, min_end_time::Int, ma
     # Compute observation range
     min_obs_time = max(t + 1, min_end_time)
     possible_Tos = collect(min_obs_time:max_end_time)
-    
-    # Calculate truncated normal parameters
-    μ = Tt
-    σ = (Tt - t) / std_divisor
-    
-    base_dist = Normal(μ, σ)
-    
-    # Compute truncation bounds
-    lower = min_obs_time
-    upper = max_end_time
-    cdf_lower = cdf(base_dist, lower)
-    cdf_upper = cdf(base_dist, upper)
-    denom = cdf_upper - cdf_lower
-    
-    # Handle edge case where denominator is zero
-    if denom ≈ 0.0
-        return nothing  # Fallback to deterministic
-    end
-    
-    # Compute probabilities for each possible observation
+
+    # Poisson observation: rate = remaining time, so observations narrow as project progresses
+    λ = max(1, Tt - t)
+    poisson_dist = Poisson(λ)
+
+    # Compute probabilities: To = t + X where X ~ Poisson(λ), so P(To) = P(X = To - t)
     probs = Float64[]
     for To_val in possible_Tos
-        p = pdf(base_dist, To_val) / denom
+        x = To_val - t
+        p = x >= 0 ? pdf(poisson_dist, x) : 0.0
         push!(probs, p)
     end
-    
-    # Normalize probabilities (safety check)
+
+    # Normalize over the truncated range
     total_p = sum(probs)
     if total_p ≈ 0.0
         return nothing  # Fallback to deterministic
     end
     probs ./= total_p
-    
+
     return (possible_Tos, probs)
 end
 
@@ -95,7 +82,7 @@ end
 function create_pomdp_observation(t::Int, Ta::Int, Tt::Int, min_end_time::Int, max_end_time::Int; std_divisor::Real = 3)
     # Try to compute stochastic distribution
     result = compute_observation_distribution(t, Tt, min_end_time, max_end_time; std_divisor=std_divisor)
-    
+
     if result === nothing
         # Deterministic case: return full observation tuple with true end time
         return Deterministic((t, Ta, Tt))
@@ -105,4 +92,32 @@ function create_pomdp_observation(t::Int, Ta::Int, Tt::Int, min_end_time::Int, m
         obs_list = [(t, Ta, To_val) for To_val in possible_Tos]
         return SparseCat(obs_list, probs)
     end
+end
+
+# ============================================================================
+# Stochastic Tt Transition
+# ============================================================================
+
+function compute_tt_transition_distribution(Ta::Int, action::Int, Tt::Int, max_end_time::Int;
+        p_no_effect::Float64 = 0.4, p_small::Float64 = 0.5, delta_small::Int = 1,
+        p_large::Float64 = 0.1, delta_large::Int = 3)
+    # If the agent keeps the same announcement, Tt is unchanged
+    if action == Ta
+        return Deterministic(Tt)
+    end
+
+    # Agent changed its announcement (replanned) — Tt may increase
+    candidates = [Tt, min(Tt + delta_small, max_end_time), min(Tt + delta_large, max_end_time)]
+    raw_probs  = [p_no_effect, p_small, p_large]
+
+    # Merge duplicates caused by clamping to max_end_time
+    merged = Dict{Int, Float64}()
+    for (v, p) in zip(candidates, raw_probs)
+        merged[v] = get(merged, v, 0.0) + p
+    end
+
+    vals  = collect(keys(merged))
+    probs = collect(values(merged))
+
+    return SparseCat(vals, probs)
 end
