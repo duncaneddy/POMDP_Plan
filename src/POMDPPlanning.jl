@@ -142,6 +142,14 @@ function parse_commandline()
             help = "Standard deviation divisor for normal observation model: σ = (Tt - t) / std_divisor (default 3.0)"
             arg_type = Float64
             default = 3.0
+        "--lambda-c"
+            help = "Cost weight for deviation from true end time (default 3.0)"
+            arg_type = Float64
+            default = 3.0
+        "--lambda-e"
+            help = "Cost weight for changing announced time (default 5.0)"
+            arg_type = Float64
+            default = 5.0
         "command"
             help = "Command to execute (solve or evaluate)"
             required = true
@@ -232,6 +240,8 @@ function main()
                     args["discount"],
                     initial_announce=args["initial-announce"],
                     sigma_max=args["sigma-max"],
+                    lambda_c=args["lambda-c"],
+                    lambda_e=args["lambda-e"],
                     p_no_effect=args["p-no-effect"],
                     p_small=args["p-small"],
                     delta_small=args["delta-small"],
@@ -250,6 +260,8 @@ function main()
                     initial_announce=args["initial-announce"],
                     fixed_true_end_time=args["true-end-time"],
                     sigma_max=args["sigma-max"],
+                    lambda_c=args["lambda-c"],
+                    lambda_e=args["lambda-e"],
                     p_no_effect=args["p-no-effect"],
                     p_small=args["p-small"],
                     delta_small=args["delta-small"],
@@ -282,6 +294,8 @@ function main()
                 args["discount"],
                 initial_announce=args["initial-announce"],
                 sigma_max=args["sigma-max"],
+                lambda_c=args["lambda-c"],
+                lambda_e=args["lambda-e"],
                 p_no_effect=args["p-no-effect"],
                 p_small=args["p-small"],
                 delta_small=args["delta-small"],
@@ -300,6 +314,8 @@ function main()
                 initial_announce=args["initial-announce"],
                 fixed_true_end_time=args["true-end-time"],
                 sigma_max=args["sigma-max"],
+                lambda_c=args["lambda-c"],
+                lambda_e=args["lambda-e"],
                 p_no_effect=args["p-no-effect"],
                 p_small=args["p-small"],
                 delta_small=args["delta-small"],
@@ -462,7 +478,9 @@ function main()
             p_large=args["p-large"],
             delta_large=args["delta-large"],
             obs_distribution=obs_distribution,
-            std_divisor=args["std-divisor"]
+            std_divisor=args["std-divisor"],
+            lambda_c=args["lambda-c"],
+            lambda_e=args["lambda-e"]
         )
 
     else
