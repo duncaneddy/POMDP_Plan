@@ -11,7 +11,7 @@ using POMDPPlanning
 
 # Configuration
 SOLVERS = ["OBSERVEDTIME", "MOSTLIKELY", "QMDP", "MOMDP_SARSOP"]
-POLICY_TIMEOUT = 60*60*6  # 6 hours for policy computation
+POLICY_TIMEOUT = 60*30    # 30 minutes for policy computation
 NUM_CONDITIONS = 100      # Number of distinct initial Tt values
 NUM_REPETITIONS = 10      # Number of stochastic repetitions per condition
 NUM_DETAILED_PLOTS = 25   # Number of runs to save detailed belief plots for

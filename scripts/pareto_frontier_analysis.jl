@@ -19,7 +19,7 @@ using ArgParse
 using Random
 
 # Configuration constants
-const OUTPUT_DIR = "pareto_analysis_results"
+const OUTPUT_DIR = "pareto_analysis_results_final"
 const DEFAULT_SOLVER = "QMDP"
 const DEFAULT_NUM_SIMULATIONS = 100
 const DEFAULT_POLICY_TIMEOUT = 180
@@ -29,8 +29,8 @@ const DEFAULT_NUM_CONDITIONS = 100
 const DEFAULT_NUM_REPETITIONS = 10
 
 # Default reward parameters (should match project defaults)
-const DEFAULT_LAMBDA_C = 3.0
-const DEFAULT_LAMBDA_E = 5.0
+const DEFAULT_LAMBDA_C = 0.10
+const DEFAULT_LAMBDA_E = 20.0
 const DEFAULT_LAMBDA_F = 1000.0
 
 # Parameter sweep configurations
