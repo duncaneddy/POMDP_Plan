@@ -16,11 +16,11 @@ using Printf
 using DataFrames
 using CSV
 
-const REGEN_BELIEF_HISTORIES = false  # Set to false to skip belief history regeneration
+const REGEN_BELIEF_HISTORIES = true  # Set to false to skip belief history regeneration
 
 # Define consistent problem size ordering and color scheme
 const PROBLEM_SIZE_ORDER = ["small", "medium", "large", "xlarge"]
-const SOLVER_ORDER = ["OBSERVEDTIME", "MOSTLIKELY", "QMDP", "CXX_SARSOP", "MOMDP_SARSOP"]
+const SOLVER_ORDER = ["OBSERVEDTIME", "MOSTLIKELY", "QMDP", "MOMDP_SARSOP", "CXX_SARSOP"]
 const SOLVER_COLORS = Dict(
     "OBSERVEDTIME" => :blue,
     "MOSTLIKELY" => :red, 
@@ -148,6 +148,69 @@ function calculate_standard_error(values::Vector{Any}, n_simulations::Int=1000)
         return 0.0
     end
     return std(values) / sqrt(min(length(values), n_simulations))
+end
+
+"""
+Compute average weighted error from detailed batch data.
+Returns Dict mapping (size, solver) => mean avg error, or empty if data unavailable.
+"""
+function compute_avg_errors_from_detailed_data(experiment_dir::String, problem_sizes, solvers)
+    avg_errors = Dict{Tuple{String, String}, Float64}()
+    detailed_base = joinpath(experiment_dir, "detailed_data")
+
+    if !isdir(detailed_base)
+        println("  No detailed_data directory found, skipping avg weighted error")
+        return avg_errors
+    end
+
+    for size in problem_sizes
+        size_dir = joinpath(detailed_base, size)
+        if !isdir(size_dir)
+            continue
+        end
+
+        for solver in solvers
+            solver_dir = joinpath(size_dir, solver)
+            if !isdir(solver_dir)
+                continue
+            end
+
+            # Load all detailed batch files for this solver/size
+            run_avg_errors = Float64[]
+
+            for file in readdir(solver_dir)
+                if !startswith(file, "detailed_batch")
+                    continue
+                end
+
+                try
+                    batch_data = JSON.parsefile(joinpath(solver_dir, file))
+
+                    for run in batch_data
+                        if !haskey(run, "iterations") || isempty(run["iterations"])
+                            continue
+                        end
+
+                        # Compute mean |action - Tt| across all timesteps
+                        errors = [abs(step["action"] - step["Tt"]) for step in run["iterations"]]
+                        push!(run_avg_errors, mean(errors))
+                    end
+                catch e
+                    println("  Warning: Could not load $file for $solver/$size: $e")
+                end
+            end
+
+            if !isempty(run_avg_errors)
+                avg_errors[(size, solver)] = mean(run_avg_errors)
+            end
+        end
+    end
+
+    if !isempty(avg_errors)
+        println("  Computed avg weighted error from detailed data ($(length(avg_errors)) solver/size combos)")
+    end
+
+    return avg_errors
 end
 
 """
@@ -363,14 +426,11 @@ function generate_belief_evolution_plots_from_json(experiment_dir::String, outpu
                             continue
                         end
                         
-                        true_end_time = run_details[1]["Tt"]
-                        
                         try
                             # Create 2D belief evolution plot with actions
                             p = plot_2d_belief_evolution_with_actions(
                                 belief_history,
                                 run_details,
-                                true_end_time,
                                 min_end_time,
                                 max_end_time,
                                 title_prefix="$(format_solver_name(solver_name)) - Run $(detailed_metrics["simulation_id"]) - ",
@@ -407,9 +467,12 @@ end
 """
 Enhanced 2D belief evolution plot with actions and optional legend control.
 """
-function plot_2d_belief_evolution_with_actions(belief_history, run_details, true_end_time, min_end_time, max_end_time; title_prefix="", is_momdp=false, show_legend=true)
+function plot_2d_belief_evolution_with_actions(belief_history, run_details, min_end_time, max_end_time; title_prefix="", is_momdp=false, show_legend=true)
+    # Extract the full Tt trajectory from run details (Tt can change dynamically)
+    tt_trajectory = Int[step["Tt"] for step in run_details]
+
     # Create the base 2D belief evolution plot
-    p = plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, max_end_time, title_prefix=title_prefix, is_momdp=is_momdp)
+    p = plot_2d_belief_evolution(belief_history, tt_trajectory, min_end_time, max_end_time, title_prefix=title_prefix, is_momdp=is_momdp)
     
     if p === nothing
         return nothing
@@ -451,7 +514,7 @@ function plot_2d_belief_evolution_with_actions(belief_history, run_details, true
     if !show_legend
         Plots.plot!(p, legend = false)
     else
-        Plots.plot!(p, legend = :topleft)
+        Plots.plot!(p, legend = :bottomright)
     end
     
     return p
@@ -460,7 +523,7 @@ end
 """
 Generate 2D belief evolution heatmap.
 """
-function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, max_end_time; title_prefix="", is_momdp=false)
+function plot_2d_belief_evolution(belief_history, tt_trajectory::Vector, min_end_time, max_end_time; title_prefix="", is_momdp=false)
     if belief_history === nothing || isempty(belief_history)
         @warn "No belief history available for 2D belief evolution plot"
         return nothing
@@ -469,12 +532,12 @@ function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, m
     # Ensure we're using the GR backend for heatmaps
     gr()
     
-    num_timesteps = length(belief_history)
+    num_display_timesteps = max_end_time + 1  # Fixed x-axis: 0 to max_end_time
     possible_end_times = collect(min_end_time:max_end_time)
     num_end_times = length(possible_end_times)
-    
+
     # Initialize probability matrix: rows = end times, columns = timesteps
-    prob_matrix = zeros(Float64, num_end_times, num_timesteps)
+    prob_matrix = zeros(Float64, num_end_times, num_display_timesteps)
     
     # Fill the probability matrix
     for (timestep_idx, belief) in enumerate(belief_history)
@@ -521,8 +584,8 @@ function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, m
         return nothing
     end
     
-    # Create timestep labels (starting from 0)
-    timestep_labels = collect(0:(num_timesteps-1))
+    # Create timestep labels (starting from 0, fixed to max_end_time)
+    timestep_labels = collect(0:(num_display_timesteps-1))
     
     # Create the heatmap using Plots.heatmap explicitly
     p = Plots.heatmap(
@@ -539,17 +602,21 @@ function plot_2d_belief_evolution(belief_history, true_end_time, min_end_time, m
         PLOT_SETTINGS...
     )
     
-    # Add a horizontal line for the actual true end time
-    Plots.hline!(p, [true_end_time], 
-           label = "True End Time", 
-           color = :red, 
-           linewidth = 3, 
-           linestyle = :dash)
+    # Add the true end time trajectory as a stepped line
+    tt_timesteps = collect(0:(length(tt_trajectory)-1))
+    Plots.plot!(p, tt_timesteps, tt_trajectory,
+          label = "True End Time",
+          color = :red,
+          linewidth = 3,
+          linestyle = :dash,
+          seriestype = :steppre)
 
-    # Ensure proper tick spacing for readability
+    # Ensure proper tick spacing and clip y-axis to data range
     Plots.plot!(p,
         xticks = (0:2:maximum(timestep_labels), 0:2:maximum(timestep_labels)),
-        yticks = (min_end_time:2:max_end_time, min_end_time:2:max_end_time)
+        yticks = (min_end_time:2:max_end_time, min_end_time:2:max_end_time),
+        ylims = (min_end_time - 0.5, max_end_time + 0.5),
+        xlims = (-0.5, num_display_timesteps - 0.5)
     )
     
     return p
@@ -747,7 +814,8 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
     # Plot percentage of incorrect final predictions
     p3 = Plots.plot(xlabel = "Problem Size",
               ylabel = "Incorrect (%)",
-              size = (800, 600);
+              size = (800, 600),
+              legend = :left;
               PLOT_SETTINGS...)
     
     for solver in sorted_solvers
@@ -835,6 +903,51 @@ function create_statistics_plots(df::DataFrame, problem_sizes, solvers, output_d
     plot!(p4, xticks = (positions, two_line_labels))
     
     Plots.savefig(p4, joinpath(stats_plot_dir, "avg_change_magnitude.pdf"))
+
+    # Plot average weighted error (if available in DataFrame)
+    if "Avg Weighted Error" in names(df)
+        p5 = Plots.plot(xlabel = "Problem Size",
+                  ylabel = "Average Weighted Error",
+                  size = (800, 600),
+                  legend = :topleft;
+                  PLOT_SETTINGS...)
+
+        for solver in sorted_solvers
+            solver_data = filter(row -> replace(row["Solver"], " " => "_") == solver, df)
+
+            if !isempty(solver_data)
+                y_data = []
+                x_data = []
+
+                for (i, size) in enumerate(sorted_sizes)
+                    size_capitalized = uppercase(string(size[1])) * lowercase(size[2:end])
+                    if size == "xlarge"
+                        size_capitalized = "XLarge"
+                    end
+                    size_rows = filter(row -> row["Problem Size"] == size_capitalized, solver_data)
+
+                    if !isempty(size_rows) && !ismissing(size_rows[1, "Avg Weighted Error"])
+                        push!(y_data, size_rows[1, "Avg Weighted Error"])
+                        push!(x_data, Float64(i))
+                    end
+                end
+
+                if !isempty(y_data)
+                    plot!(p5, x_data, y_data,
+                          label = solver,
+                          marker = :circle,
+                          markersize = 6,
+                          linewidth = 2,
+                          color = get_solver_color(solver),
+                          markerstrokewidth = 0)
+                end
+            end
+        end
+
+        plot!(p5, xticks = (positions, two_line_labels))
+
+        Plots.savefig(p5, joinpath(stats_plot_dir, "avg_weighted_error.pdf"))
+    end
 end
 
 """
@@ -1079,8 +1192,9 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
     current_backend = Plots.backend()
     gr()  
     
-    # Reshape data for grouped bar chart with consistent ordering
-    unique_solvers = sort(unique(df[!, "Solver"]))
+    # Reshape data for grouped bar chart with consistent ordering (use SOLVER_ORDER)
+    df_solvers = unique(df[!, "Solver"])
+    unique_solvers = filter(s -> s in df_solvers, sorted_solvers)
     
     mean_matrix = zeros(length(unique_solvers), length(sorted_sizes))
     stderr_matrix = zeros(length(unique_solvers), length(sorted_sizes))  # Changed from std to stderr
@@ -1100,7 +1214,13 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
     
     # Create color palette with consistent colors
     solver_colors = [get_solver_color(solver) for solver in unique_solvers]
-    
+
+    # Compute y-axis limits from data so bars are never clipped
+    all_lower = minimum(mean_matrix .- stderr_matrix)
+    all_upper = maximum(mean_matrix .+ stderr_matrix)
+    y_padding = (all_upper - all_lower) * 0.15
+    computed_ylims = (all_lower - y_padding, all_upper + y_padding)
+
     p_combined = groupedbar(
         mean_matrix',
         bar_position = :dodge,
@@ -1109,26 +1229,14 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
         labels = reshape(unique_solvers, 1, :),
         xticks = (positions, two_line_labels),  # Use two-line labels
         xlabel = "Problem Size",
-        ylabel = "Mean Reward",
+        ylabel = "Mean Reward (Higher is Better)",
         size = (1200, 700),
-        ylims = (-325, :auto),
+        ylims = computed_ylims,
         legend = :bottomleft,
         color = reshape(solver_colors, 1, :);
         PLOT_SETTINGS...)
     
-    # Add annotation with arrow pointing up in bottom right
-    y_range = ylims(p_combined)
-    x_range = xlims(p_combined)
-    
-    # Position annotation in bottom right area
-    arrow_x = x_range[2] * 0.85
-    arrow_y = y_range[1] + (y_range[2] - y_range[1]) * 0.15
-    
-    # Add arrow pointing up with text
-    annotate!(p_combined, [(arrow_x, arrow_y, 
-               Plots.text("Direction of\nimprovement ↑", 12, :right, :bottom))])
-
-        # Add error bar legend entry
+    # Add error bar legend entry
     plot!(p_combined, [NaN, NaN], [NaN, NaN], 
           label="±1 Std. Error", color=:black, linewidth=2, 
           linestyle=:solid, marker=:none)
@@ -1348,30 +1456,36 @@ end
 """
 Generate comprehensive statistics table
 """
-function generate_statistics_table(results, problem_sizes, solvers, output_dir)
+function generate_statistics_table(results, problem_sizes, solvers, output_dir; experiment_dir::Union{String, Nothing}=nothing)
     println("Generating statistics table...")
-    
+
     # Sort problem sizes consistently
     sorted_sizes = sort_problem_sizes(problem_sizes)
     sorted_solvers = sort_solvers(solvers)
-    
+
+    # Compute avg weighted errors from detailed batch data if experiment_dir is available
+    avg_weighted_errors = Dict{Tuple{String, String}, Float64}()
+    if experiment_dir !== nothing
+        avg_weighted_errors = compute_avg_errors_from_detailed_data(experiment_dir, sorted_sizes, sorted_solvers)
+    end
+
     # Collect all statistics
     stats_data = []
-    
+
     for size in sorted_sizes
         for solver in sorted_solvers
             if haskey(results[size], solver)
                 solver_results = results[size][solver]
-                
+
                 # Extract metrics
                 rewards = solver_results["rewards"]
                 num_changes = solver_results["num_changes"]
                 final_errors = solver_results["final_errors"]
                 avg_change_mags = solver_results["avg_change_magnitudes"]
-                
+
                 # Count incorrect final predictions (final error > 0)
                 incorrect_final = count(e -> e > 0, final_errors)
-                
+
                 # Compute statistics
                 stats = Dict(
                     "Problem Size" => format_problem_size(size),
@@ -1391,21 +1505,26 @@ function generate_statistics_table(results, problem_sizes, solvers, output_dir)
                     stats["Avg Tt Increase"] = mean(tt_inc)
                     stats["Std Tt Increase"] = std(tt_inc)
                 end
-                
+
+                # Add avg weighted error if computed from detailed data
+                if haskey(avg_weighted_errors, (size, solver))
+                    stats["Avg Weighted Error"] = avg_weighted_errors[(size, solver)]
+                end
+
                 push!(stats_data, stats)
             end
         end
     end
-    
+
     # Convert to DataFrame
     df = DataFrame(stats_data)
-    
+
     # Save as CSV
     CSV.write(joinpath(output_dir, "comparison_statistics.csv"), df)
-    
+
     # Create LaTeX table
     create_latex_statistics_table(df, joinpath(output_dir, "statistics_table.tex"))
-    
+
     # Create summary plots
     create_statistics_plots(df, sorted_sizes, solvers, output_dir)
 end
@@ -1551,7 +1670,7 @@ function analyze_results(experiment_dir::String; output_dir::Union{String, Nothi
     generate_reward_histograms(all_results, problem_sizes, solvers, output_dir)
     
     # 3. Generate comparison statistics table
-    generate_statistics_table(all_results, problem_sizes, solvers, output_dir)
+    generate_statistics_table(all_results, problem_sizes, solvers, output_dir; experiment_dir=experiment_dir)
     
     # 4. Generate combined visualizations
     generate_combined_plots(all_results, problem_sizes, solvers, output_dir)

@@ -341,12 +341,12 @@ function plot_2d_belief_evolution(belief_history, tt_trajectory::Vector{Int}, mi
         return nothing
     end
     
-    num_timesteps = length(belief_history)
+    num_display_timesteps = max_end_time + 1  # Fixed x-axis: 0 to max_end_time
     possible_end_times = collect(min_end_time:max_end_time)
     num_end_times = length(possible_end_times)
-    
+
     # Initialize probability matrix: rows = end times, columns = timesteps
-    prob_matrix = zeros(Float64, num_end_times, num_timesteps)
+    prob_matrix = zeros(Float64, num_end_times, num_display_timesteps)
     
     # Fill the probability matrix
     for (timestep_idx, belief) in enumerate(belief_history)
@@ -370,8 +370,8 @@ function plot_2d_belief_evolution(belief_history, tt_trajectory::Vector{Int}, mi
         end
     end
     
-    # Create timestep labels (starting from 0)
-    timestep_labels = collect(0:(num_timesteps-1))
+    # Create timestep labels (starting from 0, fixed to max_end_time)
+    timestep_labels = collect(0:(num_display_timesteps-1))
     
     # Create the heatmap
     p = heatmap(
@@ -396,12 +396,14 @@ function plot_2d_belief_evolution(belief_history, tt_trajectory::Vector{Int}, mi
           linewidth = 3,
           linestyle = :dash,
           seriestype = :steppre,
-          legend = :topleft)
+          legend = :bottomright)
 
-    # Ensure proper tick spacing for readability
+    # Ensure proper tick spacing and clip y-axis to data range
     plot!(
         xticks = (0:2:maximum(timestep_labels), 0:2:maximum(timestep_labels)),
-        yticks = (min_end_time:2:max_end_time, min_end_time:2:max_end_time)
+        yticks = (min_end_time:2:max_end_time, min_end_time:2:max_end_time),
+        ylims = (min_end_time - 0.5, max_end_time + 0.5),
+        xlims = (-0.5, num_display_timesteps - 0.5)
     )
     
     return p
