@@ -31,15 +31,15 @@ const SOLVER_COLORS = Dict(
 
 # Global plot settings for consistent formatting
 const PLOT_SETTINGS = Dict(
-    :titlefontsize => 16,
-    :labelfontsize => 14,
-    :tickfontsize => 12,
-    :legendfontsize => 12,
-    :guidefontsize => 14,
-    :left_margin => 15Plots.mm,
-    :bottom_margin => 12Plots.mm,
-    :right_margin => 10Plots.mm,
-    :top_margin => 8Plots.mm,
+    :titlefontsize => 24,
+    :labelfontsize => 22,
+    :tickfontsize => 18,
+    :legendfontsize => 18,
+    :guidefontsize => 22,
+    :left_margin => 8Plots.mm,
+    :bottom_margin => 10Plots.mm,
+    :right_margin => 4Plots.mm,
+    :top_margin => 4Plots.mm,
     :dpi => 300,
     :fontfamily => "Computer Modern"
 )
@@ -1221,6 +1221,14 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
     y_padding = (all_upper - all_lower) * 0.15
     computed_ylims = (all_lower - y_padding, all_upper + y_padding)
 
+    reward_settings = copy(PLOT_SETTINGS)
+    reward_settings[:labelfontsize] = 28
+    reward_settings[:guidefontsize] = 28
+    reward_settings[:tickfontsize] = 28
+    reward_settings[:legendfontsize] = 22
+    reward_settings[:bottom_margin] = 12Plots.mm
+    reward_settings[:left_margin] = 10Plots.mm
+
     p_combined = groupedbar(
         mean_matrix',
         bar_position = :dodge,
@@ -1229,12 +1237,12 @@ function generate_reward_analysis(results, problem_sizes, solvers, output_dir)
         labels = reshape(unique_solvers, 1, :),
         xticks = (positions, two_line_labels),  # Use two-line labels
         xlabel = "Problem Size",
-        ylabel = "Mean Reward (Higher is Better)",
+        ylabel = "Mean Reward\n(Higher is Better)",
         size = (1200, 700),
         ylims = computed_ylims,
         legend = :bottomleft,
         color = reshape(solver_colors, 1, :);
-        PLOT_SETTINGS...)
+        reward_settings...)
     
     # Add error bar legend entry
     plot!(p_combined, [NaN, NaN], [NaN, NaN], 
@@ -1428,6 +1436,14 @@ function generate_tt_increase_analysis(results, problem_sizes, solvers, output_d
     positions, two_line_labels = create_two_line_labels(sorted_sizes)
     solver_colors = [get_solver_color(s) for s in unique_solvers_with_data]
 
+    tt_settings = copy(PLOT_SETTINGS)
+    tt_settings[:labelfontsize] = 28
+    tt_settings[:guidefontsize] = 28
+    tt_settings[:tickfontsize] = 24
+    tt_settings[:legendfontsize] = 22
+    tt_settings[:bottom_margin] = 12Plots.mm
+    tt_settings[:left_margin] = 10Plots.mm
+
     p_combined = groupedbar(
         mean_matrix',
         bar_position = :dodge,
@@ -1440,7 +1456,7 @@ function generate_tt_increase_analysis(results, problem_sizes, solvers, output_d
         size = (1200, 700),
         legend = :topleft,
         color = reshape(solver_colors, 1, :);
-        PLOT_SETTINGS...
+        tt_settings...
     )
 
     # Add error bar legend entry

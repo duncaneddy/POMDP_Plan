@@ -19,8 +19,8 @@ SAVE_FREQUENCY = 50       # Save results every N simulations to prevent memory g
 OUTPUT_DIR = "paper_results"
 SEED = 42  # For reproducibility
 VERBOSE = true  # Set to false for less output
-LAMBDA_C = 0.10  # Quadratic accuracy penalty weight
-LAMBDA_E = 20.0  # Change-magnitude penalty weight
+LAMBDA_C = 2.0  # Quadratic accuracy penalty weight
+LAMBDA_E = 8.0  # Change-magnitude penalty weight
 
 """
 Load problem size configurations.

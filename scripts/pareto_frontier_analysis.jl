@@ -29,8 +29,8 @@ const DEFAULT_NUM_CONDITIONS = 100
 const DEFAULT_NUM_REPETITIONS = 10
 
 # Default reward parameters (should match project defaults)
-const DEFAULT_LAMBDA_C = 0.10
-const DEFAULT_LAMBDA_E = 20.0
+const DEFAULT_LAMBDA_C = 2.0
+const DEFAULT_LAMBDA_E = 8.0
 const DEFAULT_LAMBDA_F = 1000.0
 
 # Parameter sweep configurations
@@ -47,15 +47,15 @@ const BASELINE_COLORS = Dict(
 
 # Plot settings
 const PLOT_SETTINGS = Dict(
-    :titlefontsize => 16,
-    :labelfontsize => 14,
-    :tickfontsize => 12,
-    :legendfontsize => 12,
-    :guidefontsize => 14,
-    :left_margin => 15Plots.mm,
-    :bottom_margin => 12Plots.mm,
-    :right_margin => 10Plots.mm,
-    :top_margin => 8Plots.mm,
+    :titlefontsize => 24,
+    :labelfontsize => 22,
+    :tickfontsize => 18,
+    :legendfontsize => 18,
+    :guidefontsize => 22,
+    :left_margin => 2Plots.mm,
+    :bottom_margin => 2Plots.mm,
+    :right_margin => 2Plots.mm,
+    :top_margin => 2Plots.mm,
     :dpi => 300,
     :fontfamily => "Computer Modern"
 )
