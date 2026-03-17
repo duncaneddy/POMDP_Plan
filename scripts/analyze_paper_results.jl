@@ -612,9 +612,12 @@ function plot_2d_belief_evolution(belief_history, tt_trajectory::Vector, min_end
           seriestype = :steppre)
 
     # Ensure proper tick spacing and clip y-axis to data range
+    # Use wider tick spacing for larger problems to avoid cluttered axes
+    x_tick_step = maximum(timestep_labels) > 40 ? 5 : 2
+    y_tick_step = (max_end_time - min_end_time) > 40 ? 5 : 2
     Plots.plot!(p,
-        xticks = (0:2:maximum(timestep_labels), 0:2:maximum(timestep_labels)),
-        yticks = (min_end_time:2:max_end_time, min_end_time:2:max_end_time),
+        xticks = (0:x_tick_step:maximum(timestep_labels), 0:x_tick_step:maximum(timestep_labels)),
+        yticks = (min_end_time:y_tick_step:max_end_time, min_end_time:y_tick_step:max_end_time),
         ylims = (min_end_time - 0.5, max_end_time + 0.5),
         xlims = (-0.5, num_display_timesteps - 0.5)
     )
